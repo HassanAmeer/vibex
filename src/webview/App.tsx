@@ -51,6 +51,7 @@ const App: React.FC = () => {
     };
 
     useEffect(() => {
+        console.log('🚀 App mounted, requesting initial data...');
         vscode.postMessage({ type: 'getSettings' });
         vscode.postMessage({ type: 'getChatHistory' });
         vscode.postMessage({ type: 'getUsageStats' });
@@ -58,21 +59,26 @@ const App: React.FC = () => {
 
         const messageHandler = (event: MessageEvent) => {
             const message = event.data;
+            console.log('📩 Received message from extension:', message.type, message.payload);
 
             switch (message.type) {
                 case 'settings':
+                    console.log('⚙️ Settings loaded:', message.payload);
                     setSettings(message.payload);
                     break;
 
                 case 'chatHistory':
+                    console.log('📜 Chat history loaded:', message.payload.length, 'messages');
                     setMessages(message.payload);
                     break;
 
                 case 'usageStats':
+                    console.log('📊 Usage stats loaded:', message.payload);
                     setUsageStats(message.payload);
                     break;
 
                 case 'apiKeys': {
+                    console.log('🔑 API Keys loaded:', message.payload);
                     const keysObj: { [key: string]: string } = {};
                     message.payload.forEach((apiKey: any) => {
                         keysObj[apiKey.provider] = apiKey.key;
@@ -82,19 +88,23 @@ const App: React.FC = () => {
                 }
 
                 case 'apiKeyStored':
+                    console.log('✅ API Key stored success confirmation received for:', message.payload.provider);
                     showToast('✓ API key saved successfully!', 'success');
                     vscode.postMessage({ type: 'getAPIKeys' });
                     break;
 
                 case 'apiKeyError':
+                    console.error('❌ API Key storage failed:', message.payload.error);
                     showToast(message.payload.error || 'Failed to save API key', 'error');
                     break;
 
                 case 'messageLoading':
+                    console.log('⏳ AI is thinking...');
                     setIsLoading(true);
                     break;
 
                 case 'messageResponse': {
+                    console.log('🤖 AI Response received:', message.payload);
                     setIsLoading(false);
                     const newMessage: ChatMessage = {
                         id: Date.now().toString(),
@@ -107,22 +117,24 @@ const App: React.FC = () => {
                     setMessages(prev => [...prev, newMessage]);
 
                     if (message.payload.usedProvider && message.payload.usedProvider !== currentModel.provider) {
-                        console.log(`Switched to ${message.payload.usedProvider} due to failover`);
+                        console.warn(`⚠️ Provider failover detected: ${currentModel.provider} -> ${message.payload.usedProvider}`);
                     }
                     break;
                 }
 
                 case 'messageError':
+                    console.error('❌ Message handling error:', message.payload.error);
                     setIsLoading(false);
                     showToast(message.payload.error || 'Failed to send message', 'error');
-                    console.error('Message error:', message.payload.error);
                     break;
 
                 case 'showSettings':
+                    console.log('⚙️ Opening settings panel');
                     setShowSettings(true);
                     break;
 
                 case 'chatCleared':
+                    console.log('🧹 Chat cleared');
                     setMessages([]);
                     break;
             }

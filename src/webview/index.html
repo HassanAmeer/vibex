@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,9 +9,11 @@
         body {
             margin: 0;
             padding: 0;
-            background-color: #1e1e1e; /* VS Code Dark Default */
+            background-color: #1e1e1e;
+            /* VS Code Dark Default */
             color: #cccccc;
         }
+
         /* Mock VS Code variables */
         :root {
             --vscode-editor-background: #1e1e1e;
@@ -44,7 +47,7 @@
             return {
                 postMessage: (message) => {
                     console.log('📤 [VS Code Mock] Post Message:', message);
-                    
+
                     // Simulate responses for valid message types
                     setTimeout(() => {
                         handleMockResponse(message);
@@ -78,54 +81,56 @@
                     };
                     window.postMessage({ type: 'settings', payload }, '*');
                     break;
-                
+
                 case 'getChatHistory':
                     window.postMessage({ type: 'chatHistory', payload: [] }, '*');
                     break;
 
                 case 'getUsageStats':
-                    window.postMessage({ 
-                        type: 'usageStats', 
-                        payload: { groq: { requests: 10, tokens: 500, lastUsed: Date.now() } } 
+                    window.postMessage({
+                        type: 'usageStats',
+                        payload: { groq: { requests: 10, tokens: 500, lastUsed: Date.now() } }
                     }, '*');
                     break;
 
                 case 'getAPIKeys':
-                    window.postMessage({ 
-                        type: 'apiKeys', 
-                        payload: [{ provider: 'groq', key: 'mock-key' }] 
+                    window.postMessage({
+                        type: 'apiKeys',
+                        payload: [{ provider: 'groq', key: 'mock-key' }]
                     }, '*');
                     break;
 
                 case 'sendMessage':
                     window.postMessage({ type: 'messageLoading' }, '*');
                     setTimeout(() => {
-                        window.postMessage({ 
-                            type: 'messageResponse', 
+                        window.postMessage({
+                            type: 'messageResponse',
                             payload: {
-                                content: "This is a **mock response** from the browser environment! 🌐\n\nI can simulate:\n- Markdown rendering\n- Code blocks\n- UI interactions",
+                                content: "..This is a **mock response** from the browser environment! 🌐\n\nI can simulate:\n- Markdown rendering\n- Code blocks\n- UI interactions",
                                 model: message.payload.modelId,
                                 tokens: 42,
                                 usedProvider: message.payload.provider
-                            } 
+                            }
                         }, '*');
                     }, 1500);
                     break;
-                
+
                 case 'getLogs':
-                    window.postMessage({ 
-                        type: 'logs', 
+                    window.postMessage({
+                        type: 'logs',
                         payload: [
                             { id: '1', level: 'info', message: 'Webview mock initialized', timestamp: Date.now() },
                             { id: '2', level: 'debug', message: 'Testing log rendering', timestamp: Date.now() }
-                        ] 
+                        ]
                     }, '*');
                     break;
             }
         }
     </script>
 </head>
+
 <body>
     <div id="root"></div>
 </body>
+
 </html>

@@ -1,8 +1,9 @@
-import { useState } from 'react';
-import ModelSelector from './ModelSelector';
+import React, { useState } from 'react';
+import { BreadcrumbSelector } from './BreadcrumbSelector';
 import MessageList from './MessageList';
 import ChatInput from './ChatInput';
 import UsageDashboard from './UsageDashboard';
+import { Icons } from './Icons';
 import { ChatMessage, ExtensionSettings, UsageStats } from '../../types';
 import './ChatInterface.css';
 
@@ -33,73 +34,47 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     onOpenLogs,
     onApplyCode
 }: ChatInterfaceProps) => {
-    const [showModelSelector, setShowModelSelector] = useState(false);
     const [showDashboard, setShowDashboard] = useState(false);
 
     return (
         <div className={`chat-interface ${settings.compactMode ? 'compact' : ''}`}>
+            {/* Header: Action Icons */}
             <div className="chat-header">
                 <div className="header-left">
-                    <button
-                        className="model-selector-button"
-                        onClick={() => setShowModelSelector(!showModelSelector)}
-                    >
-                        <span className="model-icon">🤖</span>
-                        <span className="model-name">{currentModel.modelId}</span>
-                        <span className="dropdown-icon">{showModelSelector ? '▲' : '▼'}</span>
-                    </button>
+                    {/* Space for future left-side items or branding */}
                 </div>
 
-                <div className="header-right">
-                    <button
-                        className="icon-button"
-                        onClick={onOpenLogs}
-                        title="View Logs"
-                    >
-                        📋
+                <div className="header-actions">
+                    <button className="icon-btn" onClick={onOpenLogs} title="Logs">
+                        <Icons.Logs />
                     </button>
+
                     {settings.showMiniDashboard && (
-                        <button
-                            className="icon-button"
-                            onClick={() => setShowDashboard(!showDashboard)}
-                            title="Usage Stats"
-                        >
-                            📊
+                        <button className="icon-btn" onClick={() => setShowDashboard(!showDashboard)} title="Dashboard">
+                            <Icons.Dashboard />
                         </button>
                     )}
-                    <button
-                        className="icon-button"
-                        onClick={onOpenSettings}
-                        title="Settings"
-                    >
-                        ⚙️
+
+                    <button className="icon-btn" onClick={onOpenSettings} title="Settings">
+                        <Icons.Settings />
                     </button>
-                    <button
-                        className="icon-button"
-                        onClick={onClearChat}
-                        title="Clear Chat"
-                    >
-                        🗑️
+
+                    <div className="separator-vertical"></div>
+
+                    <button className="icon-btn danger" onClick={onClearChat} title="Clear All">
+                        <Icons.Clear />
                     </button>
                 </div>
             </div>
 
-            {showModelSelector && (
-                <ModelSelector
-                    currentModel={currentModel}
-                    onSelect={(provider: string, modelId: string) => {
-                        onModelSwitch(provider, modelId);
-                        setShowModelSelector(false);
-                    }}
-                    onClose={() => setShowModelSelector(false)}
-                />
-            )}
-
+            {/* Main Content: Messages or Dashboard */}
             {showDashboard && (
-                <UsageDashboard
-                    stats={usageStats}
-                    onClose={() => setShowDashboard(false)}
-                />
+                <div className="dashboard-overlay">
+                    <UsageDashboard
+                        stats={usageStats}
+                        onClose={() => setShowDashboard(false)}
+                    />
+                </div>
             )}
 
             <MessageList
@@ -108,10 +83,20 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 onApplyCode={onApplyCode}
             />
 
-            <ChatInput
-                onSend={onSendMessage}
-                disabled={isLoading}
-            />
+            {/* Footer: Input and Breadcrumbs */}
+            <div className="chat-footer">
+                <ChatInput
+                    onSend={onSendMessage}
+                    disabled={isLoading}
+                />
+                <div className="model-bar">
+                    <BreadcrumbSelector
+                        currentProvider={currentModel.provider}
+                        currentModelId={currentModel.modelId}
+                        onSelect={onModelSwitch}
+                    />
+                </div>
+            </div>
         </div>
     );
 };

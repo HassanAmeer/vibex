@@ -1,4 +1,5 @@
-import { useState, useRef } from 'react';
+import React, { useState, useRef } from 'react';
+import { Icons } from './Icons';
 import './ChatInput.css';
 
 interface ChatInputProps {
@@ -54,7 +55,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
                     className="send-button"
                     disabled={!input.trim() || disabled}
                 >
-                    {disabled ? '⏳' : '🚀'}
+                    {disabled ? '⏳' : <Icons.Send />}
                 </button>
             </div>
         </form>
