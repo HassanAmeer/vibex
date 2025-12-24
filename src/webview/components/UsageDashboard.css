@@ -1,0 +1,109 @@
+.usage-dashboard {
+    background: var(--vscode-sideBar-background);
+    border-bottom: 1px solid var(--vscode-panel-border);
+    padding: 16px;
+    animation: slideDown 0.2s ease;
+}
+
+.dashboard-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.dashboard-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.stats-summary {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.stat-card {
+    padding: 16px;
+    background: linear-gradient(135deg, rgba(255, 87, 34, 0.1), rgba(255, 152, 0, 0.1));
+    border-radius: 12px;
+    text-align: center;
+}
+
+.stat-value {
+    font-size: 24px;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 4px;
+}
+
+.stat-label {
+    font-size: 12px;
+    opacity: 0.7;
+}
+
+.provider-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.provider-stat {
+    padding: 12px;
+    background: var(--vscode-editor-background);
+    border-radius: 8px;
+    border-left: 3px solid var(--primary-color);
+}
+
+.provider-name {
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.provider-details {
+    display: flex;
+    gap: 12px;
+    font-size: 12px;
+    opacity: 0.8;
+    margin-bottom: 4px;
+}
+
+.provider-last-used {
+    font-size: 11px;
+    opacity: 0.6;
+}
+
+.no-stats {
+    text-align: center;
+    padding: 32px;
+    opacity: 0.6;
+}
+
+.no-stats p {
+    margin: 4px 0;
+}
+
+.no-stats .hint {
+    font-size: 12px;
+    opacity: 0.7;
+}
+
+.provider-stats::-webkit-scrollbar {
+    width: 6px;
+}
+
+.provider-stats::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.provider-stats::-webkit-scrollbar-thumb {
+    background: var(--primary-color);
+    border-radius: 3px;
+}
