@@ -9,7 +9,7 @@ cd /Users/mac/.vscode/extensions/vibeall || exit 1
 # Make sure it's built first
 if [ ! -f "dist/extension.js" ]; then
     echo "⚠️  Extension not built yet. Building first..."
-    ./build-extension.sh
+    ./build.sh
 fi
 
 echo "🎁 Packaging extension..."
