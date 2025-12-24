@@ -17,7 +17,8 @@ export class ModelClient {
     }
 
     setAPIKey(provider: string, apiKey: string): void {
-        switch (provider.toLowerCase()) {
+        const normalizedProvider = provider.toLowerCase();
+        switch (normalizedProvider) {
             case 'groq':
                 this.clients.set('groq', new GroqClient(apiKey));
                 break;
@@ -28,7 +29,8 @@ export class ModelClient {
             case 'cerebras':
             case 'deepseek':
             case 'sambanova':
-                this.clients.set(provider.toLowerCase(), new OpenAIClient(apiKey, provider.toLowerCase()));
+            case 'anthropic':
+                this.clients.set(normalizedProvider, new OpenAIClient(apiKey, normalizedProvider));
                 break;
         }
     }

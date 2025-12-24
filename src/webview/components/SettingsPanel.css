@@ -7,11 +7,32 @@
 
 .settings-header {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    padding: 16px;
+    gap: 16px;
+    padding: 20px;
     background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
     color: white;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.back-button {
+    background: rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s;
+}
+
+.back-button:hover {
+    background: rgba(255, 255, 255, 0.3);
+    transform: translateX(-2px);
 }
 
 .settings-header h2 {
@@ -28,6 +49,10 @@
 
 .settings-section {
     margin-bottom: 32px;
+    background: var(--vscode-sideBar-background);
+    padding: 20px;
+    border-radius: 12px;
+    border: 1px solid var(--vscode-panel-border);
 }
 
 .settings-section h3 {
@@ -146,7 +171,8 @@
     align-items: center;
     gap: 12px;
     padding: 12px;
-    background: var(--vscode-sideBar-background);
+    background: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-input-border);
     border-radius: 8px;
     cursor: pointer;
     transition: all 0.2s;

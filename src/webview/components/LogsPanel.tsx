@@ -21,12 +21,14 @@ const LogsPanel: React.FC<LogsPanelProps> = ({ onClose }) => {
         // Request logs from extension
         const vscode = (window as any).acquireVsCodeApi?.();
         if (vscode) {
+            console.log('Requesting logs...');
             vscode.postMessage({ type: 'getLogs' });
         }
 
         const messageHandler = (event: MessageEvent) => {
             const message = event.data;
             if (message.type === 'logs') {
+                console.log('Received logs:', message.payload);
                 setLogs(message.payload || []);
             } else if (message.type === 'newLog') {
                 setLogs(prev => [...prev, message.payload]);
@@ -72,7 +74,11 @@ const LogsPanel: React.FC<LogsPanelProps> = ({ onClose }) => {
     return (
         <div className="logs-panel">
             <div className="logs-header">
-                <h2>📋 Logs</h2>
+                <div className="header-left">
+                    <button className="back-button" onClick={onClose}>← Back</button>
+                    <h2>📋 Logs & Diagnostics</h2>
+                </div>
+
                 <div className="logs-actions">
                     <select
                         className="logs-filter"
@@ -88,9 +94,6 @@ const LogsPanel: React.FC<LogsPanelProps> = ({ onClose }) => {
                     <button className="clear-logs-button" onClick={clearLogs}>
                         🗑️ Clear
                     </button>
-                    <button className="close-button" onClick={onClose}>
-                        ✕
-                    </button>
                 </div>
             </div>
 
@@ -98,6 +101,7 @@ const LogsPanel: React.FC<LogsPanelProps> = ({ onClose }) => {
                 {filteredLogs.length === 0 ? (
                     <div className="empty-logs">
                         <p>No logs to display</p>
+                        <p className="hint">Run some commands to generate logs</p>
                     </div>
                 ) : (
                     <div className="logs-list">

@@ -4,6 +4,14 @@ import { StorageManager } from './managers/StorageManager';
 import { ContextManager } from './managers/ContextManager';
 import { ModelClient } from './api/ModelClient';
 
+interface LogEntry {
+    id: string;
+    timestamp: number;
+    level: 'info' | 'warning' | 'error' | 'debug';
+    message: string;
+    details?: any;
+}
+
 export function activate(context: vscode.ExtensionContext) {
     console.log('VibeAll extension is now active!');
 
@@ -11,15 +19,56 @@ export function activate(context: vscode.ExtensionContext) {
     const contextManager = new ContextManager();
     const modelClient = new ModelClient();
 
+    // Output channel for logging
+    const outputChannel = vscode.window.createOutputChannel('VibeAll');
+
+    // In-memory logs
+    let logs: LogEntry[] = [];
+
+    function log(level: 'info' | 'warning' | 'error' | 'debug', message: string, details?: any) {
+        const entry: LogEntry = {
+            id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+            timestamp: Date.now(),
+            level,
+            message,
+            details
+        };
+
+        logs.push(entry);
+
+        // Keep only last 1000 logs
+        if (logs.length > 1000) {
+            logs = logs.slice(logs.length - 1000);
+        }
+
+        // Send to output channel
+        const timestamp = new Date(entry.timestamp).toLocaleTimeString();
+        outputChannel.appendLine(`[${timestamp}] [${level.toUpperCase()}] ${message}`);
+        if (details) {
+            outputChannel.appendLine(JSON.stringify(details, null, 2));
+        }
+
+        // Broadcast to webview
+        sendMessage({
+            type: 'newLog',
+            payload: entry
+        });
+    }
+
     // Load API keys on startup
     loadAPIKeys();
 
     async function loadAPIKeys() {
-        const apiKeys = await storageManager.getAllAPIKeys();
-        apiKeys.forEach(({ provider, key }) => {
-            modelClient.setAPIKey(provider, key);
-        });
-        console.log(`[VibeAll] Loaded ${apiKeys.length} API keys`);
+        try {
+            const apiKeys = await storageManager.getAllAPIKeys();
+            apiKeys.forEach(({ provider, key }) => {
+                modelClient.setAPIKey(provider, key);
+                log('info', `Loaded API key for ${provider}`, { keyLength: key.length });
+            });
+            log('info', `Loaded ${apiKeys.length} API keys`);
+        } catch (error: any) {
+            log('error', 'Failed to load API keys', error);
+        }
     }
 
     // Create webview panel
@@ -86,6 +135,7 @@ export function activate(context: vscode.ExtensionContext) {
 
                 case 'updateSettings':
                     await storageManager.updateSettings(payload);
+                    log('info', 'Settings updated');
                     break;
 
                 case 'getChatHistory':
@@ -98,6 +148,22 @@ export function activate(context: vscode.ExtensionContext) {
                 case 'clearChat':
                     await storageManager.clearChatHistory();
                     sendMessage({ type: 'chatCleared' });
+                    log('info', 'Chat history cleared');
+                    break;
+
+                case 'getLogs':
+                    sendMessage({
+                        type: 'logs',
+                        payload: logs
+                    });
+                    break;
+
+                case 'clearLogs':
+                    logs = [];
+                    sendMessage({
+                        type: 'logs',
+                        payload: []
+                    });
                     break;
 
                 case 'getUsageStats':
@@ -118,13 +184,18 @@ export function activate(context: vscode.ExtensionContext) {
 
                 case 'storeAPIKey':
                     try {
-                        await storageManager.storeAPIKey(payload.provider, payload.key);
-                        modelClient.setAPIKey(payload.provider, payload.key);
+                        const { provider, key } = payload;
+                        await storageManager.storeAPIKey(provider, key);
+                        modelClient.setAPIKey(provider, key);
+
+                        log('info', `API key stored for ${provider}`);
+
                         sendMessage({
                             type: 'apiKeyStored',
-                            payload: { provider: payload.provider }
+                            payload: { provider }
                         });
                     } catch (error: any) {
+                        log('error', `Failed to store API key: ${error.message}`);
                         sendMessage({
                             type: 'apiKeyError',
                             payload: { error: error.message }
@@ -137,7 +208,7 @@ export function activate(context: vscode.ExtensionContext) {
                     break;
 
                 case 'switchModel':
-                    // Model switch is handled on the webview side
+                    log('info', `Switched model to ${payload.provider} / ${payload.modelId}`);
                     break;
 
                 case 'applyCode':
@@ -149,6 +220,7 @@ export function activate(context: vscode.ExtensionContext) {
             }
         } catch (error: any) {
             console.error(`[VibeAll] Error handling message:`, error);
+            log('error', `Error handling message ${type}`, error);
             sendMessage({
                 type: 'error',
                 payload: { error: error.message }
@@ -160,6 +232,7 @@ export function activate(context: vscode.ExtensionContext) {
         const { messages, provider, modelId } = payload;
 
         sendMessage({ type: 'messageLoading' });
+        log('info', `Processing message with ${provider} (${modelId})`);
 
         try {
             // Get context
@@ -171,15 +244,20 @@ export function activate(context: vscode.ExtensionContext) {
                 messagesWithContext[0].content = `${context}\n\n${messagesWithContext[0].content}`;
             }
 
-            // Get API key
-            const apiKey = await storageManager.getAPIKey(provider);
-            if (!apiKey) {
-                throw new Error(`No API key found for ${provider}. Please add one in settings.`);
+            // Ensure API key is loaded
+            if (!modelClient.hasClient(provider)) {
+                // Try to load from storage one more time
+                const apiKey = await storageManager.getAPIKey(provider);
+                if (apiKey) {
+                    modelClient.setAPIKey(provider, apiKey);
+                } else {
+                    throw new Error(`No API key found for ${provider}. Please add one in settings.`);
+                }
             }
 
             // Send to AI
             const response = await modelClient.sendMessage(
-                { provider, modelId, apiKey },
+                { provider, modelId },
                 messagesWithContext
             );
 
@@ -218,8 +296,10 @@ export function activate(context: vscode.ExtensionContext) {
                 }
             });
 
+            log('info', `AI Response received from ${provider}`, { tokens: response.usage?.total_tokens });
+
         } catch (error: any) {
-            console.error('[VibeAll] AI message error:', error);
+            log('error', `AI processing failed: ${error.message}`, error);
             sendMessage({
                 type: 'messageError',
                 payload: { error: error.message }
@@ -246,8 +326,10 @@ export function activate(context: vscode.ExtensionContext) {
             });
 
             vscode.window.showInformationMessage('Code applied successfully!');
+            log('info', 'Code applied to file');
         } catch (error: any) {
             vscode.window.showErrorMessage(`Failed to apply code: ${error.message}`);
+            log('error', 'Failed to apply code', error);
         }
     }
 

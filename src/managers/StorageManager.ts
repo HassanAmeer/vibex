@@ -15,19 +15,19 @@ export class StorageManager {
     }
 
     async storeAPIKey(provider: string, key: string): Promise<void> {
-        const storageKey = `vibeall.apikey.${provider}`;
+        const storageKey = `vibeall.apikey.${provider.toLowerCase()}`;
         await this.secretStorage.store(storageKey, key);
         console.log(`[StorageManager] Stored API key for ${provider}`);
     }
 
     async getAPIKey(provider: string): Promise<string | undefined> {
-        const storageKey = `vibeall.apikey.${provider}`;
+        const storageKey = `vibeall.apikey.${provider.toLowerCase()}`;
         const key = await this.secretStorage.get(storageKey);
         return key;
     }
 
     async getAllAPIKeys(): Promise<APIKey[]> {
-        const providers = ['groq', 'google', 'openai', 'cerebras', 'deepseek', 'sambanova'];
+        const providers = ['groq', 'google', 'openai', 'cerebras', 'deepseek', 'sambanova', 'anthropic'];
         const keys: APIKey[] = [];
 
         for (const provider of providers) {
@@ -41,7 +41,7 @@ export class StorageManager {
     }
 
     async deleteAPIKey(provider: string): Promise<void> {
-        const storageKey = `vibeall.apikey.${provider}`;
+        const storageKey = `vibeall.apikey.${provider.toLowerCase()}`;
         await this.secretStorage.delete(storageKey);
         console.log(`[StorageManager] Deleted API key for ${provider}`);
     }

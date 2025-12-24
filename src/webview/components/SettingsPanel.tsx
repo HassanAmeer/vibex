@@ -102,8 +102,10 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     return (
         <div className="settings-panel">
             <div className="settings-header">
+                <button className="back-button" onClick={onClose}>
+                    ← Back to Chat
+                </button>
                 <h2>⚙️ Settings</h2>
-                <button className="close-button" onClick={onClose}>×</button>
             </div>
 
             <div className="settings-content">

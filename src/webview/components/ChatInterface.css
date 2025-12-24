@@ -2,7 +2,8 @@
     display: flex;
     flex-direction: column;
     height: 100vh;
-    background: var(--vscode-editor-background);
+    background: transparent;
+    position: relative;
 }
 
 .chat-interface.compact {
@@ -13,95 +14,124 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 12px 16px;
-    background: var(--vscode-sideBar-background);
-    border-bottom: 1px solid var(--vscode-panel-border);
+    padding: 16px 20px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border-bottom: 1px solid var(--glass-border);
+    position: relative;
+    z-index: 10;
+    box-shadow: var(--shadow-sm);
+    transition: all 0.3s ease;
 }
 
 .header-left {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 16px;
 }
 
 .header-right {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 12px;
 }
 
+/* Premium Model Selector */
 .model-selector-button {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
-    border: none;
-    border-radius: 8px;
-    color: white;
-    font-size: 14px;
+    gap: 10px;
+    padding: 8px 16px;
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1));
+    border: 1px solid rgba(139, 92, 246, 0.2);
+    border-radius: 12px;
+    color: var(--vscode-foreground);
+    font-size: 13px;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.2s var(--ease-out-cubic);
 }
 
 .model-selector-button:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(255, 87, 34, 0.3);
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(139, 92, 246, 0.2));
+    border-color: rgba(139, 92, 246, 0.4);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(139, 92, 246, 0.15);
 }
 
 .model-icon {
-    font-size: 18px;
+    font-size: 16px;
+    /* Gradient Text for Icon */
+    background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
 }
 
 .model-name {
-    max-width: 200px;
+    max-width: 180px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    letter-spacing: 0.01em;
 }
 
 .dropdown-icon {
-    font-size: 12px;
-    opacity: 0.8;
+    font-size: 10px;
+    opacity: 0.6;
+    transition: transform 0.2s;
 }
 
+.model-selector-button:hover .dropdown-icon {
+    transform: translateY(1px);
+    opacity: 1;
+}
+
+/* Glassy Action Buttons */
 .icon-button {
-    background: var(--vscode-button-secondaryBackground);
-    border: none;
-    border-radius: 6px;
-    width: 32px;
-    height: 32px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    width: 36px;
+    height: 36px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 16px;
+    font-size: 18px;
+    color: var(--vscode-foreground);
+    opacity: 0.7;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.2s var(--ease-out-cubic);
 }
 
 .icon-button:hover {
-    background: var(--vscode-button-secondaryHoverBackground);
-    transform: translateY(-2px);
+    background: rgba(255, 255, 255, 0.08);
+    opacity: 1;
+    transform: scale(1.05);
 }
 
 .icon-button:active {
-    transform: translateY(0);
+    transform: scale(0.95);
 }
 
 /* Responsive */
 @media (max-width: 600px) {
+    .chat-header {
+        padding: 12px;
+    }
+
     .model-name {
-        max-width: 120px;
+        max-width: 100px;
+        font-size: 12px;
     }
 
     .header-right {
-        gap: 4px;
+        gap: 6px;
     }
 
     .icon-button {
-        width: 28px;
-        height: 28px;
-        font-size: 14px;
+        width: 32px;
+        height: 32px;
+        font-size: 16px;
     }
 }
