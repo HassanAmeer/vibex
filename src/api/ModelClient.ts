@@ -1,6 +1,8 @@
 import { GroqClient } from './GroqClient';
 import { GoogleClient } from './GoogleClient';
 import { OpenAIClient } from './OpenAIClient';
+import { AnthropicClient } from './AnthropicClient';
+import { BytezClient } from './BytezClient';
 import { BaseAPIClient } from './BaseAPIClient';
 
 export interface ModelConfig {
@@ -25,12 +27,20 @@ export class ModelClient {
             case 'google':
                 this.clients.set('google', new GoogleClient(apiKey));
                 break;
+            case 'anthropic':
+                this.clients.set('anthropic', new AnthropicClient(apiKey));
+                break;
             case 'openai':
             case 'cerebras':
             case 'deepseek':
             case 'sambanova':
-            case 'anthropic':
+            case 'xai':
+            case 'novita':
+            case 'aimlapi':
                 this.clients.set(normalizedProvider, new OpenAIClient(apiKey, normalizedProvider));
+                break;
+            case 'bytez':
+                this.clients.set('bytez', new BytezClient(apiKey));
                 break;
         }
     }

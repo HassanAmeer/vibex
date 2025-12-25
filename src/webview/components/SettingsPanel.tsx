@@ -102,7 +102,11 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
         { id: 'cerebras', name: 'Cerebras', emoji: '🧠' },
         { id: 'sambanova', name: 'SambaNova', emoji: '🚀' },
         { id: 'openai', name: 'OpenAI', emoji: '🤖' },
-        { id: 'anthropic', name: 'Anthropic', emoji: '🎭' }
+        { id: 'anthropic', name: 'Anthropic', emoji: '🎭' },
+        { id: 'xai', name: 'xAI (Grok)', emoji: '🚀' },
+        { id: 'novita', name: 'Novita', emoji: '🐱' },
+        { id: 'bytez', name: 'Bytez', emoji: '🎲' },
+        { id: 'aimlapi', name: 'AimlAPI', emoji: '🤖' }
     ];
 
     return (

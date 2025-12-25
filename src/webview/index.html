@@ -10,11 +10,9 @@
             margin: 0;
             padding: 0;
             background-color: #1e1e1e;
-            /* VS Code Dark Default */
             color: #cccccc;
         }
 
-        /* Mock VS Code variables */
         :root {
             --vscode-editor-background: #1e1e1e;
             --vscode-editor-foreground: #cccccc;
@@ -39,91 +37,257 @@
             --vscode-dropdown-background: #3c3c3c;
             --vscode-dropdown-foreground: #f0f0f0;
             --vscode-textBlockQuote-background: rgba(127, 127, 127, 0.1);
+            --glass-bg: rgba(30, 30, 30, 0.8);
+            --glass-border: rgba(255, 255, 255, 0.1);
         }
     </style>
     <script>
-        // Mock VS Code API
+        // Mock State Persistence
+        const mockApiKeys = JSON.parse(localStorage.getItem('vibeall_mock_keys') || '{}');
+        const mockSettings = JSON.parse(localStorage.getItem('vibeall_mock_settings') || '{"autoRunCommands": false, "autoApplyEdits": false, "showMiniDashboard": true, "compactMode": false, "theme": { "primaryColor": "#6366f1", "accentColor": "#8b5cf6", "mode": "dark" }}');
+
         window.acquireVsCodeApi = () => {
             return {
                 postMessage: (message) => {
-                    console.log('📤 [VS Code Mock] Post Message:', message);
-
-                    // Simulate responses for valid message types
-                    setTimeout(() => {
-                        handleMockResponse(message);
-                    }, 500);
+                    console.log('📤 [Mock] Post Message:', message);
+                    setTimeout(() => handleMockResponse(message), 100);
                 },
                 setState: (state) => {
-                    console.log('💾 [VS Code Mock] Set State:', state);
+                    console.log('💾 [Mock] Set State:', state);
                     localStorage.setItem('vscodeState', JSON.stringify(state));
                 },
                 getState: () => {
-                    const state = JSON.parse(localStorage.getItem('vscodeState') || '{}');
-                    console.log('📖 [VS Code Mock] Get State:', state);
-                    return state;
+                    return JSON.parse(localStorage.getItem('vscodeState') || '{}');
                 }
             };
         };
 
-        function handleMockResponse(message) {
-            const event = new Event('message');
-            // Default mock data
-            let payload = null;
-
+        async function handleMockResponse(message) {
             switch (message.type) {
                 case 'getSettings':
-                    payload = {
-                        autoRunCommands: false,
-                        autoApplyEdits: false,
-                        showMiniDashboard: true,
-                        compactMode: false,
-                        theme: { primaryColor: '#6366f1', accentColor: '#8b5cf6', mode: 'dark' }
-                    };
-                    window.postMessage({ type: 'settings', payload }, '*');
+                    dispatch({ type: 'settings', payload: mockSettings });
+                    break;
+
+                case 'updateSettings':
+                    Object.assign(mockSettings, message.payload);
+                    localStorage.setItem('vibeall_mock_settings', JSON.stringify(mockSettings));
                     break;
 
                 case 'getChatHistory':
-                    window.postMessage({ type: 'chatHistory', payload: [] }, '*');
+                    dispatch({ type: 'chatHistory', payload: [] });
                     break;
 
                 case 'getUsageStats':
-                    window.postMessage({
+                    dispatch({
                         type: 'usageStats',
                         payload: { groq: { requests: 10, tokens: 500, lastUsed: Date.now() } }
-                    }, '*');
+                    });
                     break;
 
                 case 'getAPIKeys':
-                    window.postMessage({
-                        type: 'apiKeys',
-                        payload: [{ provider: 'groq', key: 'mock-key' }]
-                    }, '*');
+                    const keysArray = Object.keys(mockApiKeys).map(provider => ({
+                        provider,
+                        key: mockApiKeys[provider]
+                    }));
+                    dispatch({ type: 'apiKeys', payload: keysArray });
+                    break;
+
+                case 'storeAPIKey':
+                    const { provider, key } = message.payload;
+                    if (key) mockApiKeys[provider] = key;
+                    else delete mockApiKeys[provider];
+                    localStorage.setItem('vibeall_mock_keys', JSON.stringify(mockApiKeys));
+                    dispatch({ type: 'apiKeyStored', payload: { provider } });
                     break;
 
                 case 'sendMessage':
-                    window.postMessage({ type: 'messageLoading' }, '*');
-                    setTimeout(() => {
-                        window.postMessage({
-                            type: 'messageResponse',
-                            payload: {
-                                content: "..This is a **mock response** from the browser environment! 🌐\n\nI can simulate:\n- Markdown rendering\n- Code blocks\n- UI interactions",
-                                model: message.payload.modelId,
-                                tokens: 42,
-                                usedProvider: message.payload.provider
-                            }
-                        }, '*');
-                    }, 1500);
+                    dispatch({ type: 'messageLoading' });
+                    await handleSendMessage(message.payload);
                     break;
 
                 case 'getLogs':
-                    window.postMessage({
+                    dispatch({
                         type: 'logs',
                         payload: [
-                            { id: '1', level: 'info', message: 'Webview mock initialized', timestamp: Date.now() },
-                            { id: '2', level: 'debug', message: 'Testing log rendering', timestamp: Date.now() }
+                            { id: '1', level: 'info', message: 'Webview mock initialized', timestamp: Date.now() }
                         ]
-                    }, '*');
+                    });
                     break;
+            }
+        }
+
+        function dispatch(msg) {
+            window.postMessage(msg, '*');
+        }
+
+        async function handleSendMessage(payload) {
+            const { provider, modelId, messages } = payload;
+            const apiKey = mockApiKeys[provider];
+
+            // Sanitize messages to remove 'id' and other internal properties that APIs might reject
+            const cleanMessages = messages.map(m => ({
+                role: m.role,
+                content: m.content
+            }));
+
+            if (!apiKey) {
+                dispatch({
+                    type: 'messageError',
+                    payload: { error: `No API key for ${provider}. Configure in Settings.` }
+                });
+                return;
+            }
+
+            try {
+                let responseContent = '';
+                let totalTokens = 0;
+
+                // Proxy map based on webpack configuration
+                const API_MAP = {
+                    groq: {
+                        url: '/proxy/groq/openai/v1/chat/completions',
+                        headers: { 'Authorization': `Bearer ${apiKey}` },
+                        body: (msgs) => ({ model: modelId, messages: msgs, temperature: 0.7 })
+                    },
+                    openai: {
+                        url: '/proxy/openai/v1/chat/completions',
+                        headers: { 'Authorization': `Bearer ${apiKey}` },
+                        body: (msgs) => ({ model: modelId, messages: msgs })
+                    },
+                    cerebras: {
+                        url: '/proxy/cerebras/v1/chat/completions',
+                        headers: { 'Authorization': `Bearer ${apiKey}` },
+                        body: (msgs) => ({ model: modelId, messages: msgs })
+                    },
+                    sambanova: {
+                        url: '/proxy/sambanova/v1/chat/completions',
+                        headers: { 'Authorization': `Bearer ${apiKey}` },
+                        body: (msgs) => ({ model: modelId, messages: msgs })
+                    },
+                    google: {
+                        url: `/proxy/google/v1beta/models/${modelId}:generateContent?key=${apiKey}`,
+                        headers: {},
+                        body: (msgs) => {
+                            const contents = msgs.map(m => ({
+                                role: m.role === 'assistant' ? 'model' : 'user',
+                                parts: [{ text: m.content }]
+                            }));
+                            return { contents };
+                        }
+                    },
+                    anthropic: {
+                        url: '/proxy/anthropic/v1/messages',
+                        headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+                        body: (msgs) => {
+                            // Correct formatting for Anthropic
+                            const systemMsg = msgs.find(m => m.role === 'system');
+                            const otherMsgs = msgs.filter(m => m.role !== 'system');
+                            return {
+                                model: modelId,
+                                messages: otherMsgs,
+                                max_tokens: 4096,
+                                system: systemMsg ? systemMsg.content : undefined
+                            };
+                        }
+                    },
+                    xai: {
+                        url: '/proxy/xai/v1/chat/completions',
+                        headers: { 'Authorization': `Bearer ${apiKey}` },
+                        body: (msgs) => ({ model: modelId, messages: msgs, stream: false, temperature: 0 })
+                    },
+                    novita: {
+                        url: '/proxy/novita/openai/chat/completions',
+                        headers: { 'Authorization': `Bearer ${apiKey}` },
+                        body: (msgs) => ({ model: modelId, messages: msgs, temperature: 0.7, max_tokens: 1000 })
+                    },
+                    bytez: {
+                        url: `/proxy/bytez/models/v2/${modelId}`,
+                        headers: { 'Authorization': `Key ${apiKey}` },
+                        body: (msgs) => {
+                            let input = msgs;
+                            const isEmbedding = modelId.includes('sentence-transformers') ||
+                                modelId.includes('bge') ||
+                                modelId.includes('nomic') ||
+                                modelId.includes('clip') ||
+                                modelId.includes('siglip');
+
+                            const isMedia = modelId.includes('stable') ||
+                                modelId.includes('whisper') ||
+                                modelId.includes('bark');
+
+                            // For non-chat models (embeddings, media), use the last message content only
+                            if (isEmbedding || isMedia) {
+                                input = msgs[msgs.length - 1].content;
+                            }
+
+                            const body = { input };
+                            // Only add params for models that support it (LLMs)
+                            if (!isEmbedding && !modelId.includes('whisper') && !modelId.includes('bark')) {
+                                body.params = { max_tokens: 1024 };
+                            }
+                            return body;
+                        }
+                    },
+                    aimlapi: {
+                        url: '/proxy/aimlapi/v1/chat/completions',
+                        headers: { 'Authorization': `Bearer ${apiKey}` },
+                        body: (msgs) => ({ model: modelId, messages: msgs, temperature: 0.7, max_tokens: 4096 })
+                    }
+                };
+
+                const config = API_MAP[provider.toLowerCase()] || API_MAP['openai']; // Default to generic
+
+                console.log(`📡 Sending request to generic proxy for ${provider}...`);
+
+                const res = await fetch(config.url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', ...config.headers },
+                    body: JSON.stringify(config.body(cleanMessages))
+                });
+
+                if (!res.ok) {
+                    const txt = await res.text();
+                    throw new Error(`API Error ${res.status}: ${txt}`);
+                }
+
+                const data = await res.json();
+
+                // Parse response based on provider
+                if (provider === 'google') {
+                    responseContent = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                    totalTokens = data.usageMetadata?.totalTokenCount || 0;
+                } else if (provider === 'anthropic') {
+                    responseContent = data.content?.[0]?.text || '';
+                    totalTokens = data.usage?.output_tokens || 0;
+                } else if (provider === 'bytez') {
+                    // Handle variable Bytez output (string, array, object)
+                    responseContent = typeof data.output === 'string'
+                        ? data.output
+                        : (data.output?.[0]?.content || JSON.stringify(data.output));
+                    totalTokens = 0; // Not returned standardly
+                } else {
+                    responseContent = data.choices?.[0]?.message?.content || '';
+                    totalTokens = data.usage?.total_tokens || 0;
+                }
+
+                if (!responseContent) throw new Error('Empty response from AI provider');
+
+                dispatch({
+                    type: 'messageResponse',
+                    payload: {
+                        content: responseContent,
+                        model: modelId,
+                        tokens: totalTokens,
+                        usedProvider: provider
+                    }
+                });
+
+            } catch (error) {
+                console.error(error);
+                dispatch({
+                    type: 'messageError',
+                    payload: { error: `Proxy Request Failed: ${error.message}. Ensure "npm run web" is running.` }
+                });
             }
         }
     </script>

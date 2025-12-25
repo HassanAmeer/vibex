@@ -212,6 +212,7 @@ const App: React.FC = () => {
 
             {showLogs ? (
                 <LogsPanel
+                    show={showLogs}
                     onClose={() => setShowLogs(false)}
                 />
             ) : showSettings ? (

@@ -3,6 +3,7 @@ import './LogsPanel.css';
 
 interface LogsPanelProps {
     onClose: () => void;
+    show?: boolean;
 }
 
 interface LogEntry {

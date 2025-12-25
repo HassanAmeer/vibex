@@ -36,6 +36,76 @@ module.exports = {
         compress: true,
         port: 3000,
         hot: true,
-        open: false, // Don't auto-open, we'll tell the user. Or maybe we can try to open it?
+        open: false,
+        proxy: [
+            {
+                context: ['/proxy/groq'],
+                target: 'https://api.groq.com',
+                pathRewrite: { '^/proxy/groq': '' },
+                changeOrigin: true,
+                secure: false
+            },
+            {
+                context: ['/proxy/openai'],
+                target: 'https://api.openai.com',
+                pathRewrite: { '^/proxy/openai': '' },
+                changeOrigin: true,
+                secure: false
+            },
+            {
+                context: ['/proxy/google'],
+                target: 'https://generativelanguage.googleapis.com',
+                pathRewrite: { '^/proxy/google': '' },
+                changeOrigin: true,
+                secure: false
+            },
+            {
+                context: ['/proxy/cerebras'],
+                target: 'https://api.cerebras.ai',
+                pathRewrite: { '^/proxy/cerebras': '' },
+                changeOrigin: true,
+                secure: false
+            },
+            {
+                context: ['/proxy/sambanova'],
+                target: 'https://api.sambanova.ai',
+                pathRewrite: { '^/proxy/sambanova': '' },
+                changeOrigin: true,
+                secure: false
+            },
+            {
+                context: ['/proxy/anthropic'],
+                target: 'https://api.anthropic.com',
+                pathRewrite: { '^/proxy/anthropic': '' },
+                secure: false
+            },
+            {
+                context: ['/proxy/xai'],
+                target: 'https://api.x.ai',
+                pathRewrite: { '^/proxy/xai': '' },
+                secure: false
+            },
+            {
+                context: ['/proxy/novita'],
+                target: 'https://api.novita.ai',
+                pathRewrite: { '^/proxy/novita': '' },
+                changeOrigin: true,
+                secure: false
+            },
+            {
+                context: ['/proxy/bytez'],
+                target: 'https://api.bytez.com',
+                pathRewrite: { '^/proxy/bytez': '' },
+                changeOrigin: true,
+                secure: false
+            },
+            {
+                context: ['/proxy/aimlapi'],
+                target: 'https://api.aimlapi.com',
+                pathRewrite: { '^/proxy/aimlapi': '' },
+                changeOrigin: true,
+                secure: false
+            }
+        ]
     },
 };

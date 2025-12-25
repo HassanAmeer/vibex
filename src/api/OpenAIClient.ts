@@ -7,7 +7,10 @@ export class OpenAIClient extends BaseAPIClient {
             'openai': 'https://api.openai.com/v1',
             'cerebras': 'https://api.cerebras.ai/v1',
             'deepseek': 'https://api.deepseek.com/v1',
-            'sambanova': 'https://api.sambanova.ai/v1'
+            'sambanova': 'https://api.sambanova.ai/v1',
+            'xai': 'https://api.x.ai/v1',
+            'novita': 'https://api.novita.ai/openai',
+            'aimlapi': 'https://api.aimlapi.com/v1'
         };
         super(apiKey, baseURLs[provider] || baseURLs['openai']);
     }
@@ -20,7 +23,7 @@ export class OpenAIClient extends BaseAPIClient {
             model: modelId,
             messages,
             temperature: 0.7,
-            max_tokens: 4096
+            max_tokens: modelId === 'kat-coder' ? 1000 : 4096
         });
 
         const data = await response.json();
