@@ -37,6 +37,7 @@ export class ModelClient {
             case 'xai':
             case 'novita':
             case 'aimlapi':
+            case 'openrouter':
                 this.clients.set(normalizedProvider, new OpenAIClient(apiKey, normalizedProvider));
                 break;
             case 'bytez':

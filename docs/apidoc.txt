@@ -1,5 +1,119 @@
 <!-- 
 
+# https://aistudio.google.com/api-keys
+-AIzaSyD5o3jmrNy0aXn3WjFRyvx8pDNDuf81SVw
+-AIzaSyAlZqroIZALwMvu5z4MEz-FSN6pPPDV8r4
+
+
+
+
+
+
+__________________________________________________________________________________________
+
+# https://openrouter.ai/models?fmt=cards&max_price=0
+25+ free models
+
+https://openrouter.ai/settings/keys
+
+sk-or-v1
+: remove colon
+-1694aab7c648d98ff30077f6b25f525109c83d82045498d365a785a1b525309f
+
+- https://openrouter.ai/models?fmt=cards&max_price=0
+
+allenai/olmo-3.1-32b-think:free
+xiaomi/mimo-v2-flash:free
+nvidia/nemotron-3-nano-30b-a3b:free
+mistralai/devstral-2512:free
+nex-agi/deepseek-v3.1-nex-n1:free
+arcee-ai/trinity-mini:free
+tngtech/tng-r1t-chimera:free
+allenai/olmo-3-32b-think:free
+kwaipilot/kat-coder-pro:free
+nvidia/nemotron-nano-12b-v2-vl:free
+nvidia/nemotron-nano-9b-v2:free
+openai/gpt-oss-120b:free
+openai/gpt-oss-20b:free
+z-ai/glm-4.5-air:free
+qwen/qwen3-coder:free
+moonshotai/kimi-k2:free
+cognitivecomputations/dolphin-mistral-24b-venice-edition:free
+google/gemma-3n-e2b-it:free
+tngtech/deepseek-r1t2-chimera:free
+deepseek/deepseek-r1-0528:free
+google/gemma-3n-e4b-it:free
+qwen/qwen3-4b:free
+tngtech/deepseek-r1t-chimera:free
+mistralai/mistral-small-3.1-24b-instruct:free
+google/gemma-3-4b-it:free
+google/gemma-3-12b-it:free
+google/gemma-3-27b-it:free
+google/gemini-2.0-flash-exp:free
+meta-llama/llama-3.3-70b-instruct:free
+meta-llama/llama-3.2-3b-instruct:free
+qwen/qwen-2.5-vl-7b-instruct:free
+nousresearch/hermes-3-llama-3.1-405b:free
+meta-llama/llama-3.1-405b-instruct:free
+mistralai/mistral-7b-instruct:free
+
+- api example
+// First API call with reasoning
+let response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  method: "POST",
+  headers: {
+    "Authorization": `Bearer ${<OPENROUTER_API_KEY>}`,
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify({
+    "model": "allenai/olmo-3.1-32b-think:free",
+    "messages": [
+      {
+        "role": "user",
+        "content": "How many r's are in the word 'strawberry'?"
+      }
+    ],
+    "reasoning": {"enabled": true}
+  })
+});
+
+// Extract the assistant message with reasoning_details and save it to the response variable
+const result = await response.json();
+response = result.choices[0].message;
+
+// Preserve the assistant message with reasoning_details
+const messages = [
+  {
+    role: 'user',
+    content: "How many r's are in the word 'strawberry'?",
+  },
+  {
+    role: 'assistant',
+    content: response.content,
+    reasoning_details: response.reasoning_details, // Pass back unmodified
+  },
+  {
+    role: 'user',
+    content: "Are you sure? Think carefully.",
+  },
+];
+
+// Second API call - model continues reasoning from where it left off
+const response2 = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  method: "POST",
+  headers: {
+    "Authorization": `Bearer ${<OPENROUTER_API_KEY>}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    "model": "allenai/olmo-3.1-32b-think:free",
+    "messages": messages  // Includes preserved reasoning_details
+  })
+});
+
+
+__________________________________________________________________________________________
+
 
 # aimlapi.com
 10 request per hour: 

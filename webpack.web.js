@@ -105,6 +105,13 @@ module.exports = {
                 pathRewrite: { '^/proxy/aimlapi': '' },
                 changeOrigin: true,
                 secure: false
+            },
+            {
+                context: ['/proxy/openrouter'],
+                target: 'https://openrouter.ai',
+                pathRewrite: { '^/proxy/openrouter': '' },
+                changeOrigin: true,
+                secure: false
             }
         ]
     },

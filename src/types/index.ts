@@ -67,6 +67,7 @@ export interface StreamResponse {
     done: boolean;
     model?: string;
     tokens?: number;
+    reasoning_details?: any;
 }
 
 export interface ErrorResponse {

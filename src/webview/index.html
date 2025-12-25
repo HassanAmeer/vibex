@@ -43,7 +43,7 @@
     </style>
     <script>
         // Mock State Persistence
-        const mockApiKeys = JSON.parse(localStorage.getItem('vibeall_mock_keys') || '{}');
+        const mockApiKeys = JSON.parse(localStorage.getItem('vibeall_mock_keys') || '{"openrouter": "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"}');
         const mockSettings = JSON.parse(localStorage.getItem('vibeall_mock_settings') || '{"autoRunCommands": false, "autoApplyEdits": false, "showMiniDashboard": true, "compactMode": false, "theme": { "primaryColor": "#6366f1", "accentColor": "#8b5cf6", "mode": "dark" }}');
 
         window.acquireVsCodeApi = () => {
@@ -232,6 +232,17 @@
                         url: '/proxy/aimlapi/v1/chat/completions',
                         headers: { 'Authorization': `Bearer ${apiKey}` },
                         body: (msgs) => ({ model: modelId, messages: msgs, temperature: 0.7, max_tokens: 4096 })
+                    },
+                    openrouter: {
+                        url: '/proxy/openrouter/api/v1/chat/completions',
+                        headers: { 'Authorization': `Bearer ${apiKey}` },
+                        body: (msgs) => {
+                            const body = { model: modelId, messages: msgs, temperature: 0.7 };
+                            if (modelId.includes('think') || modelId.includes('reason')) {
+                                body.reasoning = { enabled: true };
+                            }
+                            return body;
+                        }
                     }
                 };
 
@@ -265,6 +276,11 @@
                         ? data.output
                         : (data.output?.[0]?.content || JSON.stringify(data.output));
                     totalTokens = 0; // Not returned standardly
+                } else if (provider === 'openrouter') {
+                    responseContent = data.choices?.[0]?.message?.content || '';
+                    totalTokens = data.usage?.total_tokens || 0;
+                    // The reasoning details from OpenRouter could be captured here if the UI supported displaying them separately
+                    // For now, we just pass the content.
                 } else {
                     responseContent = data.choices?.[0]?.message?.content || '';
                     totalTokens = data.usage?.total_tokens || 0;

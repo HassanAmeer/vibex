@@ -1,1 +1,949 @@
-(()=>{"use strict";var e={11(e,t){Object.defineProperty(t,"__esModule",{value:!0}),t.BaseAPIClient=void 0,t.BaseAPIClient=class{constructor(e,t){this.apiKey=e,this.baseURL=t}async makeRequest(e,t,n){const a=await fetch(`${this.baseURL}${e}`,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${this.apiKey}`,...n?.headers},body:JSON.stringify(t),...n});if(!a.ok)throw new Error(`API request failed: ${a.statusText}`);return a}}},240(e,t,n){Object.defineProperty(t,"__esModule",{value:!0}),t.BytezClient=void 0;const a=n(11);class s extends a.BaseAPIClient{constructor(e){super(e,"https://api.bytez.com/models/v2")}async sendMessage(e,t){let n=t;const a=e.includes("sentence-transformers")||e.includes("bge")||e.includes("nomic")||e.includes("clip")||e.includes("siglip"),s=e.includes("stable")||e.includes("whisper")||e.includes("bark");if(a||s){const e=t[t.length-1];n=e?e.content:""}const o={input:n};a||e.includes("whisper")||e.includes("bark")||(o.params={max_tokens:1024,temperature:.7});const i=await this.makeRequest(`/${e}`,o),r=(await i.json()).output;let c="";return c="string"==typeof r?r:Array.isArray(r)&&r[0]&&r[0].content?r[0].content:JSON.stringify(r),{content:c,done:!0,model:e,tokens:0}}async makeRequest(e,t){const n=`${this.baseURL}${e}`,a={"Content-Type":"application/json",Authorization:`Key ${this.apiKey}`},s=await fetch(n,{method:"POST",headers:a,body:JSON.stringify(t)});if(!s.ok){const e=await s.text();throw new Error(`API Request Failed: ${s.status} ${s.statusText} - ${e}`)}return s}}t.BytezClient=s},265(e,t,n){var a,s=this&&this.__createBinding||(Object.create?function(e,t,n,a){void 0===a&&(a=n);var s=Object.getOwnPropertyDescriptor(t,n);s&&!("get"in s?!t.__esModule:s.writable||s.configurable)||(s={enumerable:!0,get:function(){return t[n]}}),Object.defineProperty(e,a,s)}:function(e,t,n,a){void 0===a&&(a=n),e[a]=t[n]}),o=this&&this.__setModuleDefault||(Object.create?function(e,t){Object.defineProperty(e,"default",{enumerable:!0,value:t})}:function(e,t){e.default=t}),i=this&&this.__importStar||(a=function(e){return a=Object.getOwnPropertyNames||function(e){var t=[];for(var n in e)Object.prototype.hasOwnProperty.call(e,n)&&(t[t.length]=n);return t},a(e)},function(e){if(e&&e.__esModule)return e;var t={};if(null!=e)for(var n=a(e),i=0;i<n.length;i++)"default"!==n[i]&&s(t,e,n[i]);return o(t,e),t});Object.defineProperty(t,"__esModule",{value:!0}),t.activate=function(e){console.log("VibeAll extension is now active!");const t=new l.StorageManager(e),n=new d.ContextManager,a=new p.ModelClient,s=r.window.createOutputChannel("VibeAll");let o,i=[];function g(e,t,n){const a={id:Date.now().toString()+Math.random().toString(36).substr(2,9),timestamp:Date.now(),level:e,message:t,details:n};i.push(a),i.length>1e3&&(i=i.slice(i.length-1e3));const o=new Date(a.timestamp).toLocaleTimeString();s.appendLine(`[${o}] [${e.toUpperCase()}] ${t}`),n&&s.appendLine(JSON.stringify(n,null,2)),y({type:"newLog",payload:a})}!async function(){try{const e=await t.getAllAPIKeys();e.forEach(({provider:e,key:t})=>{a.setAPIKey(e,t),g("info",`Loaded API key for ${e}`,{keyLength:t.length})}),g("info",`Loaded ${e.length} API keys`)}catch(e){g("error","Failed to load API keys",e)}}();const u=()=>{const s=r.window.activeTextEditor?r.window.activeTextEditor.viewColumn:void 0;if(o)return void o.reveal(s);o=r.window.createWebviewPanel("vibeall","VibeAll AI Assistant",r.ViewColumn.Two,{enableScripts:!0,retainContextWhenHidden:!0,localResourceRoots:[r.Uri.file(c.join(e.extensionPath,"dist"))]});const l=o.webview.asWebviewUri(r.Uri.file(c.join(e.extensionPath,"dist","webview.js")));o.webview.html=function(e){return`<!DOCTYPE html>\n<html lang="en">\n<head>\n    <meta charset="UTF-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n    <title>VibeAll AI Assistant</title>\n    <style>\n        body {\n            margin: 0;\n            padding: 0;\n            overflow: hidden;\n        }\n        #root {\n            width: 100vw;\n            height: 100vh;\n        }\n    </style>\n</head>\n<body>\n    <div id="root"></div>\n    <script src="${e}"><\/script>\n</body>\n</html>`}(l),o.webview.onDidReceiveMessage(async e=>{await async function(e){const{type:s,payload:o}=e;try{switch(s){case"getSettings":y({type:"settings",payload:t.getSettings()});break;case"updateSettings":await t.updateSettings(o),g("info","Settings updated");break;case"getChatHistory":y({type:"chatHistory",payload:t.getChatHistory()});break;case"clearChat":await t.clearChatHistory(),y({type:"chatCleared"}),g("info","Chat history cleared");break;case"getLogs":y({type:"logs",payload:i});break;case"clearLogs":i=[],y({type:"logs",payload:[]});break;case"getUsageStats":y({type:"usageStats",payload:t.getUsageStats()});break;case"getAPIKeys":y({type:"apiKeys",payload:await t.getAllAPIKeys()});break;case"storeAPIKey":try{const{provider:e,key:n}=o;await t.storeAPIKey(e,n),a.setAPIKey(e,n),g("info",`API key stored for ${e}`),y({type:"apiKeyStored",payload:{provider:e}})}catch(e){g("error",`Failed to store API key: ${e.message}`),y({type:"apiKeyError",payload:{error:e.message}})}break;case"sendMessage":await async function(e){const{messages:s,provider:o,modelId:i}=e;y({type:"messageLoading"}),g("info",`Processing message with ${o} (${i})`);try{const e=await n.getFullContext(),r=[...s];if(e&&r.length>0&&(r[0].content=`${e}\n\n${r[0].content}`),!a.hasClient(o)){const e=await t.getAPIKey(o);if(!e)throw new Error(`No API key found for ${o}. Please add one in settings.`);a.setAPIKey(o,e)}const c=await a.sendMessage({provider:o,modelId:i},r),l=[...s,{id:Date.now().toString(),role:"assistant",content:c.content,timestamp:Date.now(),model:i,tokens:c.usage?.total_tokens}];await t.saveChatHistory(l);const d=t.getUsageStats();d[o]||(d[o]={requests:0,tokens:0,lastUsed:0}),d[o].requests+=1,d[o].tokens+=c.usage?.total_tokens||0,d[o].lastUsed=Date.now(),await t.updateUsageStats(d),y({type:"messageResponse",payload:{content:c.content,model:i,tokens:c.usage?.total_tokens,usedProvider:o}}),g("info",`AI Response received from ${o}`,{tokens:c.usage?.total_tokens})}catch(e){g("error",`AI processing failed: ${e.message}`,e),y({type:"messageError",payload:{error:e.message}})}}(o);break;case"switchModel":g("info",`Switched model to ${o.provider} / ${o.modelId}`);break;case"applyCode":await async function(e){try{const t=r.window.activeTextEditor;if(!t)return void r.window.showErrorMessage("No active editor");await t.edit(n=>{const a=t.document,s=a.lineAt(a.lineCount-1),o=new r.Range(new r.Position(0,0),s.range.end);n.replace(o,e)}),r.window.showInformationMessage("Code applied successfully!"),g("info","Code applied to file")}catch(e){r.window.showErrorMessage(`Failed to apply code: ${e.message}`),g("error","Failed to apply code",e)}}(o.code,o.filePath);break;default:console.log(`[VibeAll] Unknown message type: ${s}`)}}catch(e){console.error("[VibeAll] Error handling message:",e),g("error",`Error handling message ${s}`,e),y({type:"error",payload:{error:e.message}})}}(e)},void 0,e.subscriptions),o.onDidDispose(()=>{o=void 0},null,e.subscriptions)};function y(e){o&&o.webview.postMessage(e)}const h=r.commands.registerCommand("vibeall.open",u),w=r.commands.registerCommand("vibeall.openSettings",()=>{u(),setTimeout(()=>{y({type:"showSettings"})},500)});e.subscriptions.push(h,w),u()},t.deactivate=function(){console.log("VibeAll extension is now deactivated")};const r=i(n(398)),c=i(n(928)),l=n(361),d=n(827),p=n(485)},361(e,t){Object.defineProperty(t,"__esModule",{value:!0}),t.StorageManager=void 0,t.StorageManager=class{constructor(e){this.context=e,this.secretStorage=e.secrets}async storeAPIKey(e,t){const n=`vibeall.apikey.${e.toLowerCase()}`;await this.secretStorage.store(n,t),console.log(`[StorageManager] Stored API key for ${e}`)}async getAPIKey(e){const t=`vibeall.apikey.${e.toLowerCase()}`;return await this.secretStorage.get(t)}async getAllAPIKeys(){const e=["groq","google","openai","cerebras","deepseek","sambanova","anthropic"],t=[];for(const n of e){const e=await this.getAPIKey(n);e&&t.push({provider:n,key:e})}return t}async deleteAPIKey(e){const t=`vibeall.apikey.${e.toLowerCase()}`;await this.secretStorage.delete(t),console.log(`[StorageManager] Deleted API key for ${e}`)}getSettings(){return this.context.globalState.get("vibeall.settings",{autoRunCommands:!1,autoApplyEdits:!1,showMiniDashboard:!0,compactMode:!1,alwaysShowPlan:!1,planMode:!1,theme:{primaryColor:"#FF5722",accentColor:"#FF9800",mode:"dark"}})}async updateSettings(e){await this.context.globalState.update("vibeall.settings",e),console.log("[StorageManager] Settings updated")}getChatHistory(){return this.context.globalState.get("vibeall.chatHistory",[])}async saveChatHistory(e){await this.context.globalState.update("vibeall.chatHistory",e)}async clearChatHistory(){await this.context.globalState.update("vibeall.chatHistory",[]),console.log("[StorageManager] Chat history cleared")}getUsageStats(){return this.context.globalState.get("vibeall.usageStats",{})}async updateUsageStats(e){await this.context.globalState.update("vibeall.usageStats",e)}}},398(e){e.exports=require("vscode")},441(e,t,n){Object.defineProperty(t,"__esModule",{value:!0}),t.GroqClient=void 0;const a=n(11);class s extends a.BaseAPIClient{constructor(e){super(e,"https://api.groq.com/openai/v1")}async sendMessage(e,t){const n=await this.makeRequest("/chat/completions",{model:e,messages:t,temperature:.7,max_tokens:8192}),a=await n.json();return{content:a.choices[0].message.content,done:!0,model:a.model,tokens:a.usage?.total_tokens}}}t.GroqClient=s},485(e,t,n){Object.defineProperty(t,"__esModule",{value:!0}),t.ModelClient=void 0;const a=n(441),s=n(791),o=n(778),i=n(860),r=n(240);t.ModelClient=class{constructor(){this.clients=new Map}setAPIKey(e,t){const n=e.toLowerCase();switch(n){case"groq":this.clients.set("groq",new a.GroqClient(t));break;case"google":this.clients.set("google",new s.GoogleClient(t));break;case"anthropic":this.clients.set("anthropic",new i.AnthropicClient(t));break;case"openai":case"cerebras":case"deepseek":case"sambanova":case"xai":case"novita":case"aimlapi":this.clients.set(n,new o.OpenAIClient(t,n));break;case"bytez":this.clients.set("bytez",new r.BytezClient(t))}}async sendMessage(e,t){const{provider:n,modelId:a,apiKey:s}=e;s&&this.setAPIKey(n,s);const o=this.clients.get(n.toLowerCase());if(!o)throw new Error(`No API key configured for provider: ${n}`);return await o.sendMessage(a,t)}hasClient(e){return this.clients.has(e.toLowerCase())}getAvailableProviders(){return Array.from(this.clients.keys())}}},778(e,t,n){Object.defineProperty(t,"__esModule",{value:!0}),t.OpenAIClient=void 0;const a=n(11);class s extends a.BaseAPIClient{constructor(e,t="openai"){const n={openai:"https://api.openai.com/v1",cerebras:"https://api.cerebras.ai/v1",deepseek:"https://api.deepseek.com/v1",sambanova:"https://api.sambanova.ai/v1",xai:"https://api.x.ai/v1",novita:"https://api.novita.ai/openai",aimlapi:"https://api.aimlapi.com/v1"};super(e,n[t]||n.openai)}async sendMessage(e,t){const n=await this.makeRequest("/chat/completions",{model:e,messages:t,temperature:.7,max_tokens:"kat-coder"===e?1e3:4096}),a=await n.json();return{content:a.choices[0].message.content,done:!0,model:a.model,tokens:a.usage?.total_tokens}}}t.OpenAIClient=s},791(e,t,n){Object.defineProperty(t,"__esModule",{value:!0}),t.GoogleClient=void 0;const a=n(11);class s extends a.BaseAPIClient{constructor(e){super(e,"https://generativelanguage.googleapis.com/v1beta")}async sendMessage(e,t){const n=t.map(e=>({role:"assistant"===e.role?"model":"user",parts:[{text:e.content}]})),a=await fetch(`${this.baseURL}/models/${e}:generateContent?key=${this.apiKey}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({contents:n})});if(!a.ok)throw new Error(`Gemini API error: ${a.statusText}`);const s=await a.json();return{content:s.candidates[0].content.parts[0].text,done:!0,model:e,tokens:s.usageMetadata?.totalTokenCount}}}t.GoogleClient=s},827(e,t,n){var a,s=this&&this.__createBinding||(Object.create?function(e,t,n,a){void 0===a&&(a=n);var s=Object.getOwnPropertyDescriptor(t,n);s&&!("get"in s?!t.__esModule:s.writable||s.configurable)||(s={enumerable:!0,get:function(){return t[n]}}),Object.defineProperty(e,a,s)}:function(e,t,n,a){void 0===a&&(a=n),e[a]=t[n]}),o=this&&this.__setModuleDefault||(Object.create?function(e,t){Object.defineProperty(e,"default",{enumerable:!0,value:t})}:function(e,t){e.default=t}),i=this&&this.__importStar||(a=function(e){return a=Object.getOwnPropertyNames||function(e){var t=[];for(var n in e)Object.prototype.hasOwnProperty.call(e,n)&&(t[t.length]=n);return t},a(e)},function(e){if(e&&e.__esModule)return e;var t={};if(null!=e)for(var n=a(e),i=0;i<n.length;i++)"default"!==n[i]&&s(t,e,n[i]);return o(t,e),t});Object.defineProperty(t,"__esModule",{value:!0}),t.ContextManager=void 0;const r=i(n(398));t.ContextManager=class{async getActiveFileContext(){const e=r.window.activeTextEditor;if(!e)return"";const t=e.document,n=e.selection;let a=`File: ${t.fileName}\n`;return a+=`Language: ${t.languageId}\n\n`,n.isEmpty?(a+=`Full file content:\n\`\`\`${t.languageId}\n`,a+=t.getText(),a+="\n```\n"):(a+=`Selected code:\n\`\`\`${t.languageId}\n`,a+=t.getText(n),a+="\n```\n"),a}async getWorkspaceContext(){const e=r.workspace.workspaceFolders;if(!e||0===e.length)return"";let t="Workspace Information:\n";t+=`Root: ${e[0].uri.fsPath}\n`;try{const n=r.Uri.joinPath(e[0].uri,"package.json"),a=await r.workspace.fs.readFile(n),s=JSON.parse(a.toString());t+="\nProject Dependencies:\n",s.dependencies&&(t+="Dependencies: "+Object.keys(s.dependencies).join(", ")+"\n"),s.devDependencies&&(t+="DevDependencies: "+Object.keys(s.devDependencies).join(", ")+"\n")}catch(e){}return t}async getDiagnosticsContext(){const e=r.window.activeTextEditor;if(!e)return"";const t=r.languages.getDiagnostics(e.document.uri);if(0===t.length)return"";let n="\nCurrent Errors/Warnings:\n";return t.forEach((e,t)=>{const a=e.severity===r.DiagnosticSeverity.Error?"ERROR":"WARNING";n+=`${t+1}. [${a}] Line ${e.range.start.line+1}: ${e.message}\n`}),n}async getFullContext(){const e=await this.getActiveFileContext();return`${await this.getWorkspaceContext()}\n${e}\n${await this.getDiagnosticsContext()}`}}},860(e,t,n){Object.defineProperty(t,"__esModule",{value:!0}),t.AnthropicClient=void 0;const a=n(11);class s extends a.BaseAPIClient{constructor(e){super(e,"https://api.anthropic.com/v1")}async sendMessage(e,t){let n="";const a={model:e,messages:t.filter(e=>"system"!==e.role||(n+=e.content+"\n",!1)),max_tokens:8192,system:n.trim()||void 0},s=await fetch(`${this.baseURL}/messages`,{method:"POST",headers:{"Content-Type":"application/json","x-api-key":this.apiKey,"anthropic-version":"2023-06-01"},body:JSON.stringify(a)});if(!s.ok){const e=await s.text();throw new Error(`Anthropic API error: ${s.status} - ${e}`)}const o=await s.json();return{content:o.content[0].text,done:!0,model:o.model,tokens:o.usage?.output_tokens}}}t.AnthropicClient=s},928(e){e.exports=require("path")}},t={},n=function n(a){var s=t[a];if(void 0!==s)return s.exports;var o=t[a]={exports:{}};return e[a].call(o.exports,o,o.exports,n),o.exports}(265),a=exports;for(var s in n)a[s]=n[s];n.__esModule&&Object.defineProperty(a,"__esModule",{value:!0})})();
+/******/ (() => { // webpackBootstrap
+/******/ 	"use strict";
+/******/ 	var __webpack_modules__ = ([
+/* 0 */
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.activate = activate;
+exports.deactivate = deactivate;
+const vscode = __importStar(__webpack_require__(1));
+const path = __importStar(__webpack_require__(2));
+const StorageManager_1 = __webpack_require__(3);
+const ContextManager_1 = __webpack_require__(4);
+const ModelClient_1 = __webpack_require__(5);
+function activate(context) {
+    console.log('VibeAll extension is now active!');
+    const storageManager = new StorageManager_1.StorageManager(context);
+    const contextManager = new ContextManager_1.ContextManager();
+    const modelClient = new ModelClient_1.ModelClient();
+    // Output channel for logging
+    const outputChannel = vscode.window.createOutputChannel('VibeAll');
+    // In-memory logs
+    let logs = [];
+    function log(level, message, details) {
+        const entry = {
+            id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+            timestamp: Date.now(),
+            level,
+            message,
+            details
+        };
+        logs.push(entry);
+        // Keep only last 1000 logs
+        if (logs.length > 1000) {
+            logs = logs.slice(logs.length - 1000);
+        }
+        // Send to output channel
+        const timestamp = new Date(entry.timestamp).toLocaleTimeString();
+        outputChannel.appendLine(`[${timestamp}] [${level.toUpperCase()}] ${message}`);
+        if (details) {
+            outputChannel.appendLine(JSON.stringify(details, null, 2));
+        }
+        // Broadcast to webview
+        sendMessage({
+            type: 'newLog',
+            payload: entry
+        });
+    }
+    // Load API keys on startup
+    loadAPIKeys();
+    async function loadAPIKeys() {
+        try {
+            const apiKeys = await storageManager.getAllAPIKeys();
+            apiKeys.forEach(({ provider, key }) => {
+                modelClient.setAPIKey(provider, key);
+                log('info', `Loaded API key for ${provider}`, { keyLength: key.length });
+            });
+            log('info', `Loaded ${apiKeys.length} API keys`);
+        }
+        catch (error) {
+            log('error', 'Failed to load API keys', error);
+        }
+    }
+    // Create webview panel
+    let currentPanel = undefined;
+    const showWebview = () => {
+        const columnToShowIn = vscode.window.activeTextEditor
+            ? vscode.window.activeTextEditor.viewColumn
+            : undefined;
+        if (currentPanel) {
+            currentPanel.reveal(columnToShowIn);
+            return;
+        }
+        currentPanel = vscode.window.createWebviewPanel('vibeall', 'VibeAll AI Assistant', vscode.ViewColumn.Two, {
+            enableScripts: true,
+            retainContextWhenHidden: true,
+            localResourceRoots: [
+                vscode.Uri.file(path.join(context.extensionPath, 'dist'))
+            ]
+        });
+        const webviewUri = currentPanel.webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'dist', 'webview.js')));
+        currentPanel.webview.html = getWebviewContent(webviewUri);
+        // Handle messages from webview
+        currentPanel.webview.onDidReceiveMessage(async (message) => {
+            await handleWebviewMessage(message);
+        }, undefined, context.subscriptions);
+        currentPanel.onDidDispose(() => {
+            currentPanel = undefined;
+        }, null, context.subscriptions);
+    };
+    async function handleWebviewMessage(message) {
+        const { type, payload } = message;
+        try {
+            switch (type) {
+                case 'getSettings':
+                    sendMessage({
+                        type: 'settings',
+                        payload: storageManager.getSettings()
+                    });
+                    break;
+                case 'updateSettings':
+                    await storageManager.updateSettings(payload);
+                    log('info', 'Settings updated');
+                    break;
+                case 'getChatHistory':
+                    sendMessage({
+                        type: 'chatHistory',
+                        payload: storageManager.getChatHistory()
+                    });
+                    break;
+                case 'clearChat':
+                    await storageManager.clearChatHistory();
+                    sendMessage({ type: 'chatCleared' });
+                    log('info', 'Chat history cleared');
+                    break;
+                case 'getLogs':
+                    sendMessage({
+                        type: 'logs',
+                        payload: logs
+                    });
+                    break;
+                case 'clearLogs':
+                    logs = [];
+                    sendMessage({
+                        type: 'logs',
+                        payload: []
+                    });
+                    break;
+                case 'getUsageStats':
+                    sendMessage({
+                        type: 'usageStats',
+                        payload: storageManager.getUsageStats()
+                    });
+                    break;
+                case 'getAPIKeys': {
+                    const apiKeys = await storageManager.getAllAPIKeys();
+                    sendMessage({
+                        type: 'apiKeys',
+                        payload: apiKeys
+                    });
+                    break;
+                }
+                case 'storeAPIKey':
+                    try {
+                        const { provider, key } = payload;
+                        await storageManager.storeAPIKey(provider, key);
+                        modelClient.setAPIKey(provider, key);
+                        log('info', `API key stored for ${provider}`);
+                        sendMessage({
+                            type: 'apiKeyStored',
+                            payload: { provider }
+                        });
+                    }
+                    catch (error) {
+                        log('error', `Failed to store API key: ${error.message}`);
+                        sendMessage({
+                            type: 'apiKeyError',
+                            payload: { error: error.message }
+                        });
+                    }
+                    break;
+                case 'sendMessage':
+                    await handleAIMessage(payload);
+                    break;
+                case 'switchModel':
+                    log('info', `Switched model to ${payload.provider} / ${payload.modelId}`);
+                    break;
+                case 'applyCode':
+                    await applyCodeToFile(payload.code, payload.filePath);
+                    break;
+                default:
+                    console.log(`[VibeAll] Unknown message type: ${type}`);
+            }
+        }
+        catch (error) {
+            console.error(`[VibeAll] Error handling message:`, error);
+            log('error', `Error handling message ${type}`, error);
+            sendMessage({
+                type: 'error',
+                payload: { error: error.message }
+            });
+        }
+    }
+    async function handleAIMessage(payload) {
+        const { messages, provider, modelId } = payload;
+        sendMessage({ type: 'messageLoading' });
+        log('info', `Processing message with ${provider} (${modelId})`);
+        try {
+            // Get context
+            const context = await contextManager.getFullContext();
+            // Add context to the first message if available
+            const messagesWithContext = [...messages];
+            if (context && messagesWithContext.length > 0) {
+                messagesWithContext[0].content = `${context}\n\n${messagesWithContext[0].content}`;
+            }
+            // Ensure API key is loaded
+            if (!modelClient.hasClient(provider)) {
+                // Try to load from storage one more time
+                const apiKey = await storageManager.getAPIKey(provider);
+                if (apiKey) {
+                    modelClient.setAPIKey(provider, apiKey);
+                }
+                else {
+                    throw new Error(`No API key found for ${provider}. Please add one in settings.`);
+                }
+            }
+            // Send to AI
+            const response = await modelClient.sendMessage({ provider, modelId }, messagesWithContext);
+            // Save chat history
+            const updatedMessages = [
+                ...messages,
+                {
+                    id: Date.now().toString(),
+                    role: 'assistant',
+                    content: response.content,
+                    timestamp: Date.now(),
+                    model: modelId,
+                    tokens: response.usage?.total_tokens
+                }
+            ];
+            await storageManager.saveChatHistory(updatedMessages);
+            // Update usage stats
+            const stats = storageManager.getUsageStats();
+            if (!stats[provider]) {
+                stats[provider] = { requests: 0, tokens: 0, lastUsed: 0 };
+            }
+            stats[provider].requests += 1;
+            stats[provider].tokens += (response.usage?.total_tokens || 0);
+            stats[provider].lastUsed = Date.now();
+            await storageManager.updateUsageStats(stats);
+            sendMessage({
+                type: 'messageResponse',
+                payload: {
+                    content: response.content,
+                    model: modelId,
+                    tokens: response.usage?.total_tokens,
+                    usedProvider: provider
+                }
+            });
+            log('info', `AI Response received from ${provider}`, { tokens: response.usage?.total_tokens });
+        }
+        catch (error) {
+            log('error', `AI processing failed: ${error.message}`, error);
+            sendMessage({
+                type: 'messageError',
+                payload: { error: error.message }
+            });
+        }
+    }
+    async function applyCodeToFile(code, _filePath) {
+        try {
+            const editor = vscode.window.activeTextEditor;
+            if (!editor) {
+                vscode.window.showErrorMessage('No active editor');
+                return;
+            }
+            await editor.edit(editBuilder => {
+                const document = editor.document;
+                const lastLine = document.lineAt(document.lineCount - 1);
+                const range = new vscode.Range(new vscode.Position(0, 0), lastLine.range.end);
+                editBuilder.replace(range, code);
+            });
+            vscode.window.showInformationMessage('Code applied successfully!');
+            log('info', 'Code applied to file');
+        }
+        catch (error) {
+            vscode.window.showErrorMessage(`Failed to apply code: ${error.message}`);
+            log('error', 'Failed to apply code', error);
+        }
+    }
+    function sendMessage(message) {
+        if (currentPanel) {
+            currentPanel.webview.postMessage(message);
+        }
+    }
+    function getWebviewContent(webviewUri) {
+        return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VibeAll AI Assistant</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+        #root {
+            width: 100vw;
+            height: 100vh;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <script src="${webviewUri}"></script>
+</body>
+</html>`;
+    }
+    // Register commands
+    const openCommand = vscode.commands.registerCommand('vibeall.open', showWebview);
+    const settingsCommand = vscode.commands.registerCommand('vibeall.openSettings', () => {
+        showWebview();
+        setTimeout(() => {
+            sendMessage({ type: 'showSettings' });
+        }, 500);
+    });
+    context.subscriptions.push(openCommand, settingsCommand);
+    // Show webview on activation
+    showWebview();
+}
+function deactivate() {
+    console.log('VibeAll extension is now deactivated');
+}
+
+
+/***/ }),
+/* 1 */
+/***/ ((module) => {
+
+module.exports = require("vscode");
+
+/***/ }),
+/* 2 */
+/***/ ((module) => {
+
+module.exports = require("path");
+
+/***/ }),
+/* 3 */
+/***/ ((__unused_webpack_module, exports) => {
+
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.StorageManager = void 0;
+class StorageManager {
+    constructor(context) {
+        this.context = context;
+        this.secretStorage = context.secrets;
+    }
+    async storeAPIKey(provider, key) {
+        const storageKey = `vibeall.apikey.${provider.toLowerCase()}`;
+        await this.secretStorage.store(storageKey, key);
+        console.log(`[StorageManager] Stored API key for ${provider}`);
+    }
+    async getAPIKey(provider) {
+        const storageKey = `vibeall.apikey.${provider.toLowerCase()}`;
+        const key = await this.secretStorage.get(storageKey);
+        return key;
+    }
+    async getAllAPIKeys() {
+        const providers = ['groq', 'google', 'openai', 'cerebras', 'deepseek', 'sambanova', 'anthropic'];
+        const keys = [];
+        for (const provider of providers) {
+            const key = await this.getAPIKey(provider);
+            if (key) {
+                keys.push({ provider, key });
+            }
+        }
+        return keys;
+    }
+    async deleteAPIKey(provider) {
+        const storageKey = `vibeall.apikey.${provider.toLowerCase()}`;
+        await this.secretStorage.delete(storageKey);
+        console.log(`[StorageManager] Deleted API key for ${provider}`);
+    }
+    // Settings storage
+    getSettings() {
+        return this.context.globalState.get('vibeall.settings', {
+            autoRunCommands: false,
+            autoApplyEdits: false,
+            showMiniDashboard: true,
+            compactMode: false,
+            alwaysShowPlan: false,
+            planMode: false,
+            theme: {
+                primaryColor: '#FF5722',
+                accentColor: '#FF9800',
+                mode: 'dark'
+            }
+        });
+    }
+    async updateSettings(settings) {
+        await this.context.globalState.update('vibeall.settings', settings);
+        console.log('[StorageManager] Settings updated');
+    }
+    // Chat history storage
+    getChatHistory() {
+        return this.context.globalState.get('vibeall.chatHistory', []);
+    }
+    async saveChatHistory(messages) {
+        await this.context.globalState.update('vibeall.chatHistory', messages);
+    }
+    async clearChatHistory() {
+        await this.context.globalState.update('vibeall.chatHistory', []);
+        console.log('[StorageManager] Chat history cleared');
+    }
+    // Usage stats storage
+    getUsageStats() {
+        return this.context.globalState.get('vibeall.usageStats', {});
+    }
+    async updateUsageStats(stats) {
+        await this.context.globalState.update('vibeall.usageStats', stats);
+    }
+}
+exports.StorageManager = StorageManager;
+
+
+/***/ }),
+/* 4 */
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ContextManager = void 0;
+const vscode = __importStar(__webpack_require__(1));
+class ContextManager {
+    async getActiveFileContext() {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+            return '';
+        }
+        const document = editor.document;
+        const selection = editor.selection;
+        let context = `File: ${document.fileName}\n`;
+        context += `Language: ${document.languageId}\n\n`;
+        if (!selection.isEmpty) {
+            context += `Selected code:\n\`\`\`${document.languageId}\n`;
+            context += document.getText(selection);
+            context += '\n```\n';
+        }
+        else {
+            context += `Full file content:\n\`\`\`${document.languageId}\n`;
+            context += document.getText();
+            context += '\n```\n';
+        }
+        return context;
+    }
+    async getWorkspaceContext() {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            return '';
+        }
+        let context = 'Workspace Information:\n';
+        context += `Root: ${workspaceFolders[0].uri.fsPath}\n`;
+        // Get package.json if it exists
+        try {
+            const packageJsonUri = vscode.Uri.joinPath(workspaceFolders[0].uri, 'package.json');
+            const packageJsonContent = await vscode.workspace.fs.readFile(packageJsonUri);
+            const packageJson = JSON.parse(packageJsonContent.toString());
+            context += '\nProject Dependencies:\n';
+            if (packageJson.dependencies) {
+                context += 'Dependencies: ' + Object.keys(packageJson.dependencies).join(', ') + '\n';
+            }
+            if (packageJson.devDependencies) {
+                context += 'DevDependencies: ' + Object.keys(packageJson.devDependencies).join(', ') + '\n';
+            }
+        }
+        catch (error) {
+            // package.json doesn't exist or can't be read
+        }
+        return context;
+    }
+    async getDiagnosticsContext() {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+            return '';
+        }
+        const diagnostics = vscode.languages.getDiagnostics(editor.document.uri);
+        if (diagnostics.length === 0) {
+            return '';
+        }
+        let context = '\nCurrent Errors/Warnings:\n';
+        diagnostics.forEach((diagnostic, index) => {
+            const severity = diagnostic.severity === vscode.DiagnosticSeverity.Error ? 'ERROR' : 'WARNING';
+            context += `${index + 1}. [${severity}] Line ${diagnostic.range.start.line + 1}: ${diagnostic.message}\n`;
+        });
+        return context;
+    }
+    async getFullContext() {
+        const fileContext = await this.getActiveFileContext();
+        const workspaceContext = await this.getWorkspaceContext();
+        const diagnosticsContext = await this.getDiagnosticsContext();
+        return `${workspaceContext}\n${fileContext}\n${diagnosticsContext}`;
+    }
+}
+exports.ContextManager = ContextManager;
+
+
+/***/ }),
+/* 5 */
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ModelClient = void 0;
+const GroqClient_1 = __webpack_require__(6);
+const GoogleClient_1 = __webpack_require__(8);
+const OpenAIClient_1 = __webpack_require__(9);
+const AnthropicClient_1 = __webpack_require__(10);
+const BytezClient_1 = __webpack_require__(11);
+class ModelClient {
+    constructor() {
+        this.clients = new Map();
+        // Clients will be initialized when API keys are provided
+    }
+    setAPIKey(provider, apiKey) {
+        const normalizedProvider = provider.toLowerCase();
+        switch (normalizedProvider) {
+            case 'groq':
+                this.clients.set('groq', new GroqClient_1.GroqClient(apiKey));
+                break;
+            case 'google':
+                this.clients.set('google', new GoogleClient_1.GoogleClient(apiKey));
+                break;
+            case 'anthropic':
+                this.clients.set('anthropic', new AnthropicClient_1.AnthropicClient(apiKey));
+                break;
+            case 'openai':
+            case 'cerebras':
+            case 'deepseek':
+            case 'sambanova':
+            case 'xai':
+            case 'novita':
+            case 'aimlapi':
+            case 'openrouter':
+                this.clients.set(normalizedProvider, new OpenAIClient_1.OpenAIClient(apiKey, normalizedProvider));
+                break;
+            case 'bytez':
+                this.clients.set('bytez', new BytezClient_1.BytezClient(apiKey));
+                break;
+        }
+    }
+    async sendMessage(config, messages) {
+        const { provider, modelId, apiKey } = config;
+        // Set API key if provided
+        if (apiKey) {
+            this.setAPIKey(provider, apiKey);
+        }
+        const client = this.clients.get(provider.toLowerCase());
+        if (!client) {
+            throw new Error(`No API key configured for provider: ${provider}`);
+        }
+        return await client.sendMessage(modelId, messages);
+    }
+    hasClient(provider) {
+        return this.clients.has(provider.toLowerCase());
+    }
+    getAvailableProviders() {
+        return Array.from(this.clients.keys());
+    }
+}
+exports.ModelClient = ModelClient;
+
+
+/***/ }),
+/* 6 */
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.GroqClient = void 0;
+const BaseAPIClient_1 = __webpack_require__(7);
+class GroqClient extends BaseAPIClient_1.BaseAPIClient {
+    constructor(apiKey) {
+        super(apiKey, 'https://api.groq.com/openai/v1');
+    }
+    async sendMessage(modelId, messages) {
+        const response = await this.makeRequest('/chat/completions', {
+            model: modelId,
+            messages,
+            temperature: 0.7,
+            max_tokens: 8192
+        });
+        const data = await response.json();
+        return {
+            content: data.choices[0].message.content,
+            done: true,
+            model: data.model,
+            tokens: data.usage?.total_tokens
+        };
+    }
+}
+exports.GroqClient = GroqClient;
+
+
+/***/ }),
+/* 7 */
+/***/ ((__unused_webpack_module, exports) => {
+
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.BaseAPIClient = void 0;
+class BaseAPIClient {
+    constructor(apiKey, baseURL) {
+        this.apiKey = apiKey;
+        this.baseURL = baseURL;
+    }
+    async makeRequest(endpoint, body, options) {
+        const response = await fetch(`${this.baseURL}${endpoint}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${this.apiKey}`,
+                ...options?.headers
+            },
+            body: JSON.stringify(body),
+            ...options
+        });
+        if (!response.ok) {
+            throw new Error(`API request failed: ${response.statusText}`);
+        }
+        return response;
+    }
+}
+exports.BaseAPIClient = BaseAPIClient;
+
+
+/***/ }),
+/* 8 */
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.GoogleClient = void 0;
+const BaseAPIClient_1 = __webpack_require__(7);
+class GoogleClient extends BaseAPIClient_1.BaseAPIClient {
+    constructor(apiKey) {
+        super(apiKey, 'https://generativelanguage.googleapis.com/v1beta');
+    }
+    async sendMessage(modelId, messages) {
+        // Convert messages to Gemini format
+        const contents = messages.map(msg => ({
+            role: msg.role === 'assistant' ? 'model' : 'user',
+            parts: [{ text: msg.content }]
+        }));
+        const response = await fetch(`${this.baseURL}/models/${modelId}:generateContent?key=${this.apiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contents })
+        });
+        if (!response.ok) {
+            throw new Error(`Gemini API error: ${response.statusText}`);
+        }
+        const data = await response.json();
+        return {
+            content: data.candidates[0].content.parts[0].text,
+            done: true,
+            model: modelId,
+            tokens: data.usageMetadata?.totalTokenCount
+        };
+    }
+}
+exports.GoogleClient = GoogleClient;
+
+
+/***/ }),
+/* 9 */
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.OpenAIClient = void 0;
+const BaseAPIClient_1 = __webpack_require__(7);
+class OpenAIClient extends BaseAPIClient_1.BaseAPIClient {
+    constructor(apiKey, provider = 'openai') {
+        const baseURLs = {
+            'openai': 'https://api.openai.com/v1',
+            'cerebras': 'https://api.cerebras.ai/v1',
+            'deepseek': 'https://api.deepseek.com/v1',
+            'sambanova': 'https://api.sambanova.ai/v1',
+            'xai': 'https://api.x.ai/v1',
+            'novita': 'https://api.novita.ai/openai',
+            'aimlapi': 'https://api.aimlapi.com/v1',
+            'openrouter': 'https://openrouter.ai/api/v1'
+        };
+        super(apiKey, baseURLs[provider] || baseURLs['openai']);
+        this.provider = provider;
+    }
+    async sendMessage(modelId, messages) {
+        const payload = {
+            model: modelId,
+            messages,
+            temperature: 0.7,
+            max_tokens: modelId === 'kat-coder' ? 1000 : 4096
+        };
+        // Enable reasoning for OpenRouter thinking models
+        if (this.provider === 'openrouter' && (modelId.includes('think') || modelId.includes('reason'))) {
+            payload.reasoning = { enabled: true };
+        }
+        const response = await this.makeRequest('/chat/completions', payload);
+        const data = await response.json();
+        return {
+            content: data.choices[0].message.content,
+            done: true,
+            model: data.model,
+            tokens: data.usage?.total_tokens,
+            reasoning_details: data.choices[0].message.reasoning_details
+        };
+    }
+}
+exports.OpenAIClient = OpenAIClient;
+
+
+/***/ }),
+/* 10 */
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.AnthropicClient = void 0;
+const BaseAPIClient_1 = __webpack_require__(7);
+class AnthropicClient extends BaseAPIClient_1.BaseAPIClient {
+    constructor(apiKey) {
+        super(apiKey, 'https://api.anthropic.com/v1');
+    }
+    async sendMessage(modelId, messages) {
+        // Extract system message if present (Anthropic requires it top-level)
+        let systemPrompt = '';
+        const anthropicMessages = messages.filter(msg => {
+            if (msg.role === 'system') {
+                systemPrompt += msg.content + '\n';
+                return false;
+            }
+            return true;
+        });
+        const body = {
+            model: modelId,
+            messages: anthropicMessages,
+            max_tokens: 8192,
+            system: systemPrompt.trim() || undefined
+        };
+        const response = await fetch(`${this.baseURL}/messages`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': this.apiKey, // Anthropic uses x-api-key
+                'anthropic-version': '2023-06-01'
+            },
+            body: JSON.stringify(body)
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Anthropic API error: ${response.status} - ${errorText}`);
+        }
+        const data = await response.json();
+        return {
+            content: data.content[0].text,
+            done: true,
+            model: data.model,
+            tokens: data.usage?.output_tokens
+        };
+    }
+}
+exports.AnthropicClient = AnthropicClient;
+
+
+/***/ }),
+/* 11 */
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.BytezClient = void 0;
+const BaseAPIClient_1 = __webpack_require__(7);
+class BytezClient extends BaseAPIClient_1.BaseAPIClient {
+    constructor(apiKey) {
+        super(apiKey, 'https://api.bytez.com/models/v2');
+    }
+    async sendMessage(modelId, messages) {
+        // Determine input format based on model type or just pass messages for LLMs
+        // For non-chat models (like stable-diffusion), we might want to extract the last prompt.
+        // But for now, let's implement the chat flow primarily.
+        let input = messages;
+        const isEmbedding = modelId.includes('sentence-transformers') ||
+            modelId.includes('bge') ||
+            modelId.includes('nomic') ||
+            modelId.includes('clip') ||
+            modelId.includes('siglip');
+        const isMedia = modelId.includes('stable') ||
+            modelId.includes('whisper') ||
+            modelId.includes('bark');
+        // Simple heuristic: if modelId implies image generation or embedding, use the last user message text
+        if (isEmbedding || isMedia) {
+            const lastMsg = messages[messages.length - 1];
+            input = lastMsg ? lastMsg.content : '';
+        }
+        const requestBody = { input };
+        // Only add params for models that support it (LLMs)
+        // Whisper/Bark/Embeddings don't use 'max_tokens' in the same way or error out
+        if (!isEmbedding && !modelId.includes('whisper') && !modelId.includes('bark')) {
+            requestBody.params = {
+                max_tokens: 1024,
+                temperature: 0.7
+            };
+        }
+        const response = await this.makeRequest(`/${modelId}`, requestBody);
+        const data = await response.json();
+        const output = data.output;
+        // Handle output format which can vary
+        let content = '';
+        if (typeof output === 'string') {
+            content = output;
+        }
+        else if (Array.isArray(output) && output[0] && output[0].content) {
+            // Chat output: [{ role: 'assistant', content: '...' }]
+            content = output[0].content;
+        }
+        else {
+            content = JSON.stringify(output);
+        }
+        return {
+            content: content,
+            done: true,
+            model: modelId,
+            tokens: 0 // Usage not strictly returned in standard wrapper
+        };
+    }
+    // Override makeRequest to custom format headers slightly different if needed
+    // Client.ts says: Authorization: Key ${apiKey}
+    async makeRequest(endpoint, body) {
+        const url = `${this.baseURL}${endpoint}`;
+        const headers = {
+            'Content-Type': 'application/json',
+            'Authorization': `Key ${this.apiKey}`
+        };
+        const response = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(body)
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`API Request Failed: ${response.status} ${response.statusText} - ${errorText}`);
+        }
+        return response;
+    }
+}
+exports.BytezClient = BytezClient;
+
+
+/***/ })
+/******/ 	]);
+/************************************************************************/
+/******/ 	// The module cache
+/******/ 	var __webpack_module_cache__ = {};
+/******/ 	
+/******/ 	// The require function
+/******/ 	function __webpack_require__(moduleId) {
+/******/ 		// Check if module is in cache
+/******/ 		var cachedModule = __webpack_module_cache__[moduleId];
+/******/ 		if (cachedModule !== undefined) {
+/******/ 			return cachedModule.exports;
+/******/ 		}
+/******/ 		// Create a new module (and put it into the cache)
+/******/ 		var module = __webpack_module_cache__[moduleId] = {
+/******/ 			// no module.id needed
+/******/ 			// no module.loaded needed
+/******/ 			exports: {}
+/******/ 		};
+/******/ 	
+/******/ 		// Execute the module function
+/******/ 		__webpack_modules__[moduleId].call(module.exports, module, module.exports, __webpack_require__);
+/******/ 	
+/******/ 		// Return the exports of the module
+/******/ 		return module.exports;
+/******/ 	}
+/******/ 	
+/************************************************************************/
+/******/ 	
+/******/ 	// startup
+/******/ 	// Load entry module and return exports
+/******/ 	// This entry module is referenced by other modules so it can't be inlined
+/******/ 	var __webpack_exports__ = __webpack_require__(0);
+/******/ 	var __webpack_export_target__ = exports;
+/******/ 	for(var __webpack_i__ in __webpack_exports__) __webpack_export_target__[__webpack_i__] = __webpack_exports__[__webpack_i__];
+/******/ 	if(__webpack_exports__.__esModule) Object.defineProperty(__webpack_export_target__, "__esModule", { value: true });
+/******/ 	
+/******/ })()
+;
+//# sourceMappingURL=extension.js.map
