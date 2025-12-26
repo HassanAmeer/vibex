@@ -65,6 +65,17 @@ export function activate(context: vscode.ExtensionContext) {
 
     async function loadAPIKeys() {
         try {
+            // Try to sync from LiveDB first
+            try {
+                const syncedCount = await storageManager.syncFromCloud();
+                if (syncedCount > 0) {
+                    log('info', `✅ Synced ${syncedCount} API keys from LiveDB`);
+                }
+            } catch (syncError) {
+                log('warning', 'Failed to sync from LiveDB, using local keys', syncError);
+            }
+
+            // Load all API keys (local + synced)
             const apiKeys = await storageManager.getAllAPIKeys();
             apiKeys.forEach(({ provider, key }) => {
                 modelClient.setAPIKey(provider, key);
@@ -223,15 +234,6 @@ export function activate(context: vscode.ExtensionContext) {
                         payload: storageManager.getUsageStats()
                     });
                     break;
-
-                case 'getAPIKeys': {
-                    const apiKeys = await storageManager.getAllAPIKeys();
-                    sendMessage({
-                        type: 'apiKeys',
-                        payload: apiKeys
-                    });
-                    break;
-                }
 
                 case 'getAPIKeys':
                     // Send all stored API keys to webview
@@ -764,7 +766,124 @@ IMPORTANT Rules:
         }
     });
 
-    context.subscriptions.push(openCommand, settingsCommand, indexCommand, toggleAutocompleteCommand);
+    // LiveDB sync commands
+    const syncFromCloudCommand = vscode.commands.registerCommand('vibeall.syncFromCloud', async () => {
+        try {
+            const syncedCount = await storageManager.syncFromCloud();
+            vscode.window.showInformationMessage(`✅ Synced ${syncedCount} API keys from LiveDB`);
+            log('info', `Synced ${syncedCount} API keys from LiveDB`);
+
+            // Reload API keys
+            await loadAPIKeys();
+        } catch (error: any) {
+            vscode.window.showErrorMessage(`Failed to sync from LiveDB: ${error.message}`);
+            log('error', 'Failed to sync from LiveDB', error);
+        }
+    });
+
+    const syncToCloudCommand = vscode.commands.registerCommand('vibeall.syncToCloud', async () => {
+        try {
+            const success = await storageManager.syncToCloud();
+            if (success) {
+                vscode.window.showInformationMessage('✅ API keys synced to LiveDB');
+                log('info', 'API keys synced to LiveDB');
+            } else {
+                vscode.window.showWarningMessage('Failed to sync to LiveDB');
+            }
+        } catch (error: any) {
+            vscode.window.showErrorMessage(`Failed to sync to LiveDB: ${error.message}`);
+            log('error', 'Failed to sync to LiveDB', error);
+        }
+    });
+
+    // Test LiveDB connection
+    const testLiveDBCommand = vscode.commands.registerCommand('vibeall.testLiveDB', async () => {
+        try {
+            log('info', '🔍 Testing LiveDB connection...');
+
+            // Test 1: Fetch users collection (existing data)
+            const usersUrl = 'https://link.thelocalrent.com/api/db/vibex/users';
+            log('info', `Fetching from: ${usersUrl}`);
+
+            const usersResponse = await fetch(usersUrl, {
+                headers: {
+                    'Authorization': 'Bearer 37160f2e00721d906831565829ae1de7'
+                }
+            });
+
+            log('info', `Users response status: ${usersResponse.status} ${usersResponse.statusText}`);
+
+            if (!usersResponse.ok) {
+                const errorText = await usersResponse.text();
+                log('error', `Users fetch failed: ${errorText}`);
+                vscode.window.showErrorMessage(`❌ LiveDB connection failed: ${usersResponse.status}`);
+                return;
+            }
+
+            const usersData = await usersResponse.json();
+            log('info', `✅ Users data received:`, usersData);
+
+            if (usersData && usersData.data) {
+                const userCount = usersData.data.length;
+                vscode.window.showInformationMessage(`✅ LiveDB Connected! Found ${userCount} users in collection.`);
+                log('info', `Found ${userCount} users:`, JSON.stringify(usersData.data, null, 2));
+
+                // Test 2: Try to create a test API key
+                log('info', '🔍 Testing API key creation...');
+                const apiKeysUrl = 'https://link.thelocalrent.com/api/db/vibex/api_keys';
+
+                const testPayload = {
+                    provider: 'test_provider',
+                    key: 'test_key_' + Date.now(),
+                    user_id: 'test_user_' + Date.now(),
+                    created_at: new Date().toISOString()
+                };
+
+                log('info', `Creating test API key:`, testPayload);
+
+                const createResponse = await fetch(apiKeysUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer 37160f2e00721d906831565829ae1de7',
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(testPayload)
+                });
+
+                log('info', `Create response status: ${createResponse.status} ${createResponse.statusText}`);
+
+                if (createResponse.ok) {
+                    const createResult = await createResponse.json();
+                    log('info', `✅ Test API key created:`, createResult);
+                    vscode.window.showInformationMessage(`✅ LiveDB fully working! Can read and write data.`);
+                } else {
+                    const createError = await createResponse.text();
+                    log('error', `Create failed: ${createError}`);
+                    vscode.window.showWarningMessage(`⚠️ Can read but cannot write to LiveDB`);
+                }
+            } else {
+                vscode.window.showWarningMessage('⚠️ Connected but no data format unexpected');
+                log('warning', 'Unexpected data format:', usersData);
+            }
+
+        } catch (error: any) {
+            vscode.window.showErrorMessage(`❌ LiveDB test failed: ${error.message}`);
+            log('error', 'LiveDB test failed:', error);
+            if (error.stack) {
+                log('error', 'Stack trace:', error.stack);
+            }
+        }
+    });
+
+    context.subscriptions.push(
+        openCommand,
+        settingsCommand,
+        indexCommand,
+        toggleAutocompleteCommand,
+        syncFromCloudCommand,
+        syncToCloudCommand,
+        testLiveDBCommand
+    );
 
     // Show webview on activation
     showWebview();

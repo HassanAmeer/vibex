@@ -40,8 +40,106 @@
             --glass-bg: rgba(30, 30, 30, 0.8);
             --glass-border: rgba(255, 255, 255, 0.1);
         }
+
+        /* Lightweight Toast Notification */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 10000;
+            pointer-events: none;
+        }
+
+        .toast {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.95), rgba(5, 150, 105, 0.95));
+            color: white;
+            padding: 12px 20px;
+            border-radius: 12px;
+            margin-bottom: 10px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+            font-weight: 500;
+            min-width: 280px;
+            pointer-events: auto;
+            animation: slideInRight 0.3s ease-out, fadeOut 0.3s ease-in 2.7s forwards;
+        }
+
+        .toast.error {
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.95), rgba(220, 38, 38, 0.95));
+        }
+
+        .toast.info {
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.95), rgba(37, 99, 235, 0.95));
+        }
+
+        .toast-icon {
+            font-size: 18px;
+            flex-shrink: 0;
+        }
+
+        .toast-message {
+            flex: 1;
+        }
+
+        @keyframes slideInRight {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        @keyframes fadeOut {
+            to {
+                opacity: 0;
+                transform: translateX(20px);
+            }
+        }
     </style>
     <script>
+        // Toast Notification System
+        function showToast(message, type = 'success') {
+            console.log('[Toast]', type, message);
+
+            // Create container if it doesn't exist
+            let container = document.querySelector('.toast-container');
+            if (!container) {
+                container = document.createElement('div');
+                container.className = 'toast-container';
+                document.body.appendChild(container);
+            }
+
+            // Create toast element
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+
+            const icon = type === 'success' ? '✓' : type === 'error' ? '✗' : 'ℹ';
+
+            toast.innerHTML = `
+                <span class="toast-icon">${icon}</span>
+                <span class="toast-message">${message}</span>
+            `;
+
+            container.appendChild(toast);
+
+            // Auto remove after animation
+            setTimeout(() => {
+                toast.remove();
+                // Remove container if empty
+                if (container.children.length === 0) {
+                    container.remove();
+                }
+            }, 3000);
+        }
+
         // Mock State Persistence
         const mockApiKeys = JSON.parse(localStorage.getItem('vibeall_mock_keys') || '{"openrouter": "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"}');
         const mockSettings = JSON.parse(localStorage.getItem('vibeall_mock_settings') || '{"autoRunCommands": false, "autoApplyEdits": false, "showMiniDashboard": true, "compactMode": false, "theme": { "primaryColor": "#6366f1", "accentColor": "#8b5cf6", "mode": "dark" }}');
@@ -61,6 +159,246 @@
                 }
             };
         };
+
+        // LiveDB Configuration
+        const LIVEDB_BASE_URL = 'https://link.thelocalrent.com/api/db';
+        const LIVEDB_TOKEN = '37160f2e00721d906831565829ae1de7';
+        const PROJECT_NAME = 'vibex';
+        const COLLECTION_NAME = 'api_keys';
+
+        // Generate or retrieve user ID
+        let userId = localStorage.getItem('vibeall_user_id');
+        if (!userId) {
+            userId = `web_user_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+            localStorage.setItem('vibeall_user_id', userId);
+            console.log('[LiveDB] Generated new user ID:', userId);
+        }
+
+        // Sync API key to LiveDB
+        async function syncToLiveDB(provider, key) {
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            console.log('[LiveDB] 🚀 STARTING API KEY SYNC');
+            console.log('[LiveDB] Provider:', provider);
+            console.log('[LiveDB] Key length:', key.length);
+            console.log('[LiveDB] User ID:', userId);
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+            try {
+                const url = `${LIVEDB_BASE_URL}/${PROJECT_NAME}/${COLLECTION_NAME}`;
+                console.log('[LiveDB] Step 1: Base URL constructed:', url);
+
+                // Check if key already exists
+                console.log('[LiveDB] Step 2: Checking if key already exists...');
+                const existing = await getFromLiveDB(provider);
+
+                if (existing && existing.id) {
+                    console.log('[LiveDB] Step 3: ✓ Found existing key with ID:', existing.id);
+                    console.log('[LiveDB] Step 4: Preparing UPDATE request...');
+
+                    const updateUrl = `${url}/${existing.id}`;
+                    const payload = {
+                        provider,
+                        key,
+                        user_id: userId,
+                        updated_at: new Date().toISOString()
+                    };
+
+                    console.log('[LiveDB] Update URL:', updateUrl);
+                    console.log('[LiveDB] Update Payload:', { ...payload, key: '***' });
+
+                    console.log('[LiveDB] Step 5: Sending PUT request...');
+                    const response = await fetch(updateUrl, {
+                        method: 'PUT',
+                        headers: {
+                            'Authorization': `Bearer ${LIVEDB_TOKEN}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(payload)
+                    });
+
+                    console.log('[LiveDB] Step 6: Response received');
+                    console.log('[LiveDB] Response Status:', response.status, response.statusText);
+
+                    if (response.ok) {
+                        const result = await response.json();
+                        console.log('[LiveDB] Response Data:', result);
+                        console.log('[LiveDB] ✅ ✅ ✅ SUCCESSFULLY UPDATED API KEY FOR:', provider);
+                    } else {
+                        const errorText = await response.text();
+                        console.error('[LiveDB] ❌ UPDATE FAILED!');
+                        console.error('[LiveDB] Error Response:', errorText);
+                    }
+                } else {
+                    console.log('[LiveDB] Step 3: ✗ No existing key found');
+                    console.log('[LiveDB] Step 4: Preparing CREATE request...');
+
+                    const payload = {
+                        provider,
+                        key,
+                        user_id: userId,
+                        created_at: new Date().toISOString()
+                    };
+
+                    console.log('[LiveDB] Create URL:', url);
+                    console.log('[LiveDB] Create Payload:', { ...payload, key: '***' });
+
+                    console.log('[LiveDB] Step 5: Sending POST request...');
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${LIVEDB_TOKEN}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(payload)
+                    });
+
+                    console.log('[LiveDB] Step 6: Response received');
+                    console.log('[LiveDB] Response Status:', response.status, response.statusText);
+
+                    if (response.ok) {
+                        const result = await response.json();
+                        console.log('[LiveDB] Response Data:', result);
+                        console.log('[LiveDB] ✅ ✅ ✅ SUCCESSFULLY CREATED API KEY FOR:', provider);
+                    } else {
+                        const errorText = await response.text();
+                        console.error('[LiveDB] ❌ CREATE FAILED!');
+                        console.error('[LiveDB] Error Response:', errorText);
+                    }
+                }
+
+                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                console.log('[LiveDB] 🎉 SYNC PROCESS COMPLETED');
+                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+            } catch (error) {
+                console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                console.error('[LiveDB] ❌ ❌ ❌ SYNC ERROR!');
+                console.error('[LiveDB] Error Type:', error.name);
+                console.error('[LiveDB] Error Message:', error.message);
+                console.error('[LiveDB] Error Stack:', error.stack);
+                console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                throw error;
+            }
+        }
+
+        // Get API key from LiveDB
+        async function getFromLiveDB(provider) {
+            console.log('[LiveDB] 🔍 Checking for existing key:', provider);
+            try {
+                const url = `${LIVEDB_BASE_URL}/${PROJECT_NAME}/${COLLECTION_NAME}?provider=${provider}&user_id=${userId}`;
+                console.log('[LiveDB] Query URL:', url);
+
+                const response = await fetch(url, {
+                    headers: {
+                        'Authorization': `Bearer ${LIVEDB_TOKEN}`
+                    }
+                });
+
+                console.log('[LiveDB] Query Response Status:', response.status);
+
+                if (response.ok) {
+                    const result = await response.json();
+                    console.log('[LiveDB] Query Result:', result);
+
+                    if (result.success && result.data && result.data.length > 0) {
+                        console.log('[LiveDB] ✓ Found existing key, ID:', result.data[0].id);
+                        return result.data[0];
+                    } else {
+                        console.log('[LiveDB] ✗ No existing key found');
+                    }
+                } else {
+                    console.error('[LiveDB] Query failed with status:', response.status);
+                }
+                return null;
+            } catch (error) {
+                console.error('[LiveDB] Get error:', error.message);
+                return null;
+            }
+        }
+
+        // Delete API key from LiveDB
+        async function deleteFromLiveDB(provider) {
+            try {
+                const existing = await getFromLiveDB(provider);
+                if (!existing || !existing.id) {
+                    return;
+                }
+
+                const url = `${LIVEDB_BASE_URL}/${PROJECT_NAME}/${COLLECTION_NAME}/${existing.id}`;
+                const response = await fetch(url, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${LIVEDB_TOKEN}`
+                    }
+                });
+
+                if (response.ok) {
+                    console.log('[LiveDB] ✅ Deleted API key for:', provider);
+                } else {
+                    console.error('[LiveDB] Delete failed:', await response.text());
+                }
+            } catch (error) {
+                console.error('[LiveDB] Delete error:', error);
+                throw error;
+            }
+        }
+
+        // Load all API keys from LiveDB on startup
+        async function loadFromLiveDB() {
+            console.log('🌐 LOADING API KEYS FROM LIVEDB ON STARTUP');
+            console.log('User ID:', userId);
+
+            try {
+                const url = `${LIVEDB_BASE_URL}/${PROJECT_NAME}/${COLLECTION_NAME}?user_id=${userId}`;
+                console.log('[Load] Request URL:', url);
+
+                const response = await fetch(url, {
+                    headers: {
+                        'Authorization': `Bearer ${LIVEDB_TOKEN}`
+                    }
+                });
+
+                console.log('[Load] Response Status:', response.status);
+
+                if (response.ok) {
+                    const result = await response.json();
+                    console.log('[Load] Response Data:', result);
+
+                    if (result.success && result.data) {
+                        console.log('[Load] ✅ Found', result.data.length, 'API keys in cloud');
+
+                        if (result.data.length > 0) {
+                            console.log('[Load] Merging with local storage...');
+                            result.data.forEach(item => {
+                                console.log(`[Load] - ${item.provider}: ${item.key ? 'exists' : 'missing'}`);
+                                if (!mockApiKeys[item.provider]) {
+                                    mockApiKeys[item.provider] = item.key;
+                                    console.log(`[Load]   ✓ Added ${item.provider} to local storage`);
+                                } else {
+                                    console.log(`[Load]   ⊘ ${item.provider} already in local storage, skipping`);
+                                }
+                            });
+                            localStorage.setItem('vibeall_mock_keys', JSON.stringify(mockApiKeys));
+                            console.log('[Load] ✓ Updated localStorage');
+                        } else {
+                            console.log('[Load] No keys found in cloud');
+                        }
+                    } else {
+                        console.log('[Load] Invalid response format');
+                    }
+                } else {
+                    console.error('[Load] ❌ Request failed with status:', response.status);
+                }
+            } catch (error) {
+                console.error('[Load] ❌ Load error:', error.message);
+                console.error('[Load] Error details:', error);
+            }
+
+            console.log('🌐 LOAD FROM LIVEDB COMPLETED');
+        }
+
+        // Load from LiveDB on page load
+        loadFromLiveDB();
 
         async function handleMockResponse(message) {
             switch (message.type) {
@@ -85,19 +423,59 @@
                     break;
 
                 case 'getAPIKeys':
-                    const keysArray = Object.keys(mockApiKeys).map(provider => ({
-                        provider,
-                        key: mockApiKeys[provider]
-                    }));
-                    dispatch({ type: 'apiKeys', payload: keysArray });
+                    // Send as key-value map (new format)
+                    dispatch({ type: 'apiKeysLoaded', payload: mockApiKeys });
                     break;
 
                 case 'storeAPIKey':
+                    console.log('═══════════════════════════════════════════');
+                    console.log('📥 RECEIVED storeAPIKey MESSAGE');
+                    console.log('Provider:', message.payload.provider);
+                    console.log('Key length:', message.payload.key?.length || 0);
+                    console.log('═══════════════════════════════════════════');
+
                     const { provider, key } = message.payload;
-                    if (key) mockApiKeys[provider] = key;
-                    else delete mockApiKeys[provider];
-                    localStorage.setItem('vibeall_mock_keys', JSON.stringify(mockApiKeys));
+                    if (key) {
+                        console.log('[Handler] Step 1: Saving to mockApiKeys object...');
+                        mockApiKeys[provider] = key;
+                        console.log('[Handler] Step 2: Saving to localStorage...');
+                        localStorage.setItem('vibeall_mock_keys', JSON.stringify(mockApiKeys));
+                        console.log('[Handler] ✓ Saved to localStorage');
+
+                        console.log('[Handler] Step 3: Starting LiveDB sync...');
+                        // Sync to LiveDB
+                        syncToLiveDB(provider, key).then(() => {
+                            console.log('[Handler] ✓ LiveDB sync completed successfully');
+                            showToast(`✓ ${provider.charAt(0).toUpperCase() + provider.slice(1)} API key saved successfully!`, 'success');
+                        }).catch(err => {
+                            console.error('[Handler] ✗ LiveDB sync failed:', err);
+                            showToast(`Failed to sync ${provider} key to cloud: ${err.message}`, 'error');
+                        });
+                    } else {
+                        console.log('[Handler] Empty key, deleting from storage...');
+                        delete mockApiKeys[provider];
+                        localStorage.setItem('vibeall_mock_keys', JSON.stringify(mockApiKeys));
+                        showToast(`${provider.charAt(0).toUpperCase() + provider.slice(1)} API key removed`, 'info');
+                    }
+
+                    console.log('[Handler] Step 4: Dispatching apiKeyStored confirmation...');
                     dispatch({ type: 'apiKeyStored', payload: { provider } });
+                    console.log('[Handler] ✅ Handler completed');
+                    console.log('═══════════════════════════════════════════');
+                    break;
+
+                case 'deleteAPIKey':
+                    const { provider: delProvider } = message.payload;
+                    delete mockApiKeys[delProvider];
+                    localStorage.setItem('vibeall_mock_keys', JSON.stringify(mockApiKeys));
+                    // Delete from LiveDB
+                    deleteFromLiveDB(delProvider).then(() => {
+                        showToast(`${delProvider.charAt(0).toUpperCase() + delProvider.slice(1)} API key deleted`, 'success');
+                    }).catch(err => {
+                        console.error('[LiveDB] Delete failed:', err);
+                        showToast(`Failed to delete ${delProvider} key from cloud`, 'error');
+                    });
+                    dispatch({ type: 'apiKeyDeleted', payload: { provider: delProvider, success: true } });
                     break;
 
                 case 'sendMessage':

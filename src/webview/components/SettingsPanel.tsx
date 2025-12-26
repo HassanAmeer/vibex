@@ -26,6 +26,11 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     const [savedKeysKey, setSavedKeysKey] = useState<{ [key: string]: boolean }>({});
     const [hiddenKeys, setHiddenKeys] = useState<{ [key: string]: boolean }>({});
 
+    // Update local state when savedApiKeys prop changes
+    useEffect(() => {
+        setApiKeys({ ...savedApiKeys });
+    }, [savedApiKeys]);
+
     // Initialize hidden state (all hidden by default)
     useEffect(() => {
         const initialHiddenState: any = {};
@@ -75,23 +80,19 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
 
     const deleteAPIKey = (provider: string) => {
         setApiKeys(prev => ({ ...prev, [provider]: '' }));
-        // Logic to clear from backend if needed, for now just UI clear
-        const vscode = (window as any).acquireVsCodeApi?.();
-        if (vscode) {
-            // We can send a store empty key or a delete command if backend supports it
-            // reusing storeAPIKey with empty string usually works or add deleteAPIKey command
+
+        if (typeof vscode !== 'undefined') {
             vscode.postMessage({
-                type: 'storeAPIKey',
-                payload: { provider, key: '' }
+                type: 'deleteAPIKey',
+                payload: { provider }
             });
         }
     };
 
     const saveAPIKey = (provider: string) => {
-        const vscode = (window as any).acquireVsCodeApi?.();
         const key = apiKeys[provider];
 
-        if (vscode && key) {
+        if (typeof vscode !== 'undefined' && key) {
             vscode.postMessage({
                 type: 'storeAPIKey',
                 payload: { provider, key }

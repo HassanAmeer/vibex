@@ -60,6 +60,18 @@
             {
                 "command": "vibeall.toggleAutocomplete",
                 "title": "VibeAll: Toggle Autocomplete"
+            },
+            {
+                "command": "vibeall.syncFromCloud",
+                "title": "VibeAll: Sync API Keys from Cloud"
+            },
+            {
+                "command": "vibeall.syncToCloud",
+                "title": "VibeAll: Sync API Keys to Cloud"
+            },
+            {
+                "command": "vibeall.testLiveDB",
+                "title": "VibeAll: Test LiveDB Connection"
             }
         ],
         "configuration": {

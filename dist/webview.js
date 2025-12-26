@@ -35255,15 +35255,10 @@ const App = () => {
                     console.log('📊 Usage stats loaded:', message.payload);
                     setUsageStats(message.payload);
                     break;
-                case 'apiKeys': {
-                    console.log('🔑 API Keys loaded:', message.payload);
-                    const keysObj = {};
-                    message.payload.forEach((apiKey) => {
-                        keysObj[apiKey.provider] = apiKey.key;
-                    });
-                    setApiKeys(keysObj);
+                case 'apiKeysLoaded':
+                    console.log('🔑 API Keys Loaded:', Object.keys(message.payload).length);
+                    setApiKeys(message.payload);
                     break;
-                }
                 case 'apiKeyStored':
                     console.log('✅ API Key stored success confirmation received for:', message.payload.provider);
                     showToast('✓ API key saved successfully!', 'success');
@@ -35272,6 +35267,13 @@ const App = () => {
                 case 'apiKeyError':
                     console.error('❌ API Key storage failed:', message.payload.error);
                     showToast(message.payload.error || 'Failed to save API key', 'error');
+                    break;
+                case 'apiKeyDeleted':
+                    if (message.payload.success) {
+                        showToast(`🗑️ API key for ${message.payload.provider} deleted!`, 'success');
+                        // Refresh API keys
+                        vscode.postMessage({ type: 'getAPIKeys' });
+                    }
                     break;
                 case 'messageLoading':
                     console.log('⏳ AI is thinking...');
@@ -35349,33 +35351,6 @@ const App = () => {
                     else if (analysis.issues.length > 0) {
                         showToast(analysisMsg, 'info');
                     }
-                    break;
-                case 'apiKeysLoaded':
-                    console.log('🔑 API Keys Loaded:', Object.keys(message.payload).length);
-                    setApiKeys(message.payload);
-                    break;
-                case 'apiKeySaved':
-                    if (message.payload.success) {
-                        showToast(`✅ API key for ${message.payload.provider} saved!`, 'success');
-                        // Update local state
-                        vscode.postMessage({ type: 'getAPIKeys' });
-                    }
-                    break;
-                case 'apiKeyDeleted':
-                    if (message.payload.success) {
-                        showToast(`🗑️ API key for ${message.payload.provider} deleted!`, 'success');
-                        // Update local state
-                        setApiKeys(prev => {
-                            const updated = { ...prev };
-                            delete updated[message.payload.provider];
-                            return updated;
-                        });
-                    }
-                    break;
-                case 'apiKeyStored':
-                    // Legacy handler
-                    showToast(`✅ API key for ${message.payload.provider} saved!`, 'success');
-                    vscode.postMessage({ type: 'getAPIKeys' });
                     break;
             }
         };
@@ -38516,6 +38491,10 @@ const SettingsPanel = ({ settings, savedApiKeys, onUpdate, onClose }) => {
     });
     const [savedKeysKey, setSavedKeysKey] = (0, react_1.useState)({});
     const [hiddenKeys, setHiddenKeys] = (0, react_1.useState)({});
+    // Update local state when savedApiKeys prop changes
+    (0, react_1.useEffect)(() => {
+        setApiKeys({ ...savedApiKeys });
+    }, [savedApiKeys]);
     // Initialize hidden state (all hidden by default)
     (0, react_1.useEffect)(() => {
         const initialHiddenState = {};
@@ -38559,21 +38538,16 @@ const SettingsPanel = ({ settings, savedApiKeys, onUpdate, onClose }) => {
     };
     const deleteAPIKey = (provider) => {
         setApiKeys(prev => ({ ...prev, [provider]: '' }));
-        // Logic to clear from backend if needed, for now just UI clear
-        const vscode = window.acquireVsCodeApi?.();
-        if (vscode) {
-            // We can send a store empty key or a delete command if backend supports it
-            // reusing storeAPIKey with empty string usually works or add deleteAPIKey command
+        if (typeof vscode !== 'undefined') {
             vscode.postMessage({
-                type: 'storeAPIKey',
-                payload: { provider, key: '' }
+                type: 'deleteAPIKey',
+                payload: { provider }
             });
         }
     };
     const saveAPIKey = (provider) => {
-        const vscode = window.acquireVsCodeApi?.();
         const key = apiKeys[provider];
-        if (vscode && key) {
+        if (typeof vscode !== 'undefined' && key) {
             vscode.postMessage({
                 type: 'storeAPIKey',
                 payload: { provider, key }

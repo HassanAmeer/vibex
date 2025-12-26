@@ -81,15 +81,10 @@ const App: React.FC = () => {
                     setUsageStats(message.payload);
                     break;
 
-                case 'apiKeys': {
-                    console.log('🔑 API Keys loaded:', message.payload);
-                    const keysObj: { [key: string]: string } = {};
-                    message.payload.forEach((apiKey: any) => {
-                        keysObj[apiKey.provider] = apiKey.key;
-                    });
-                    setApiKeys(keysObj);
+                case 'apiKeysLoaded':
+                    console.log('🔑 API Keys Loaded:', Object.keys(message.payload).length);
+                    setApiKeys(message.payload);
                     break;
-                }
 
                 case 'apiKeyStored':
                     console.log('✅ API Key stored success confirmation received for:', message.payload.provider);
@@ -100,6 +95,14 @@ const App: React.FC = () => {
                 case 'apiKeyError':
                     console.error('❌ API Key storage failed:', message.payload.error);
                     showToast(message.payload.error || 'Failed to save API key', 'error');
+                    break;
+
+                case 'apiKeyDeleted':
+                    if (message.payload.success) {
+                        showToast(`🗑️ API key for ${message.payload.provider} deleted!`, 'success');
+                        // Refresh API keys
+                        vscode.postMessage({ type: 'getAPIKeys' });
+                    }
                     break;
 
                 case 'messageLoading':
@@ -141,6 +144,7 @@ const App: React.FC = () => {
                     console.log('🧹 Chat cleared');
                     setMessages([]);
                     break;
+
                 case 'toolExecutionStart':
                     console.log('🛠️ Tool execution started:', message.payload.tools.length, 'tools');
                     setToolStatus({
@@ -185,37 +189,6 @@ const App: React.FC = () => {
                     } else if (analysis.issues.length > 0) {
                         showToast(analysisMsg, 'info');
                     }
-                    break;
-
-                case 'apiKeysLoaded':
-                    console.log('🔑 API Keys Loaded:', Object.keys(message.payload).length);
-                    setApiKeys(message.payload);
-                    break;
-
-                case 'apiKeySaved':
-                    if (message.payload.success) {
-                        showToast(`✅ API key for ${message.payload.provider} saved!`, 'success');
-                        // Update local state
-                        vscode.postMessage({ type: 'getAPIKeys' });
-                    }
-                    break;
-
-                case 'apiKeyDeleted':
-                    if (message.payload.success) {
-                        showToast(`🗑️ API key for ${message.payload.provider} deleted!`, 'success');
-                        // Update local state
-                        setApiKeys(prev => {
-                            const updated = { ...prev };
-                            delete updated[message.payload.provider];
-                            return updated;
-                        });
-                    }
-                    break;
-
-                case 'apiKeyStored':
-                    // Legacy handler
-                    showToast(`✅ API key for ${message.payload.provider} saved!`, 'success');
-                    vscode.postMessage({ type: 'getAPIKeys' });
                     break;
             }
         };
