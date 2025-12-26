@@ -40,6 +40,10 @@ const App: React.FC = () => {
         provider: 'groq',
         modelId: 'llama-3.3-70b-versatile'
     });
+    const [toolStatus, setToolStatus] = useState<{
+        isRunning: boolean;
+        tools: { id: number; name: string; args: any; status: 'pending' | 'running' | 'completed' }[];
+    } | null>(null);
 
     const showToast = (message: string, type: 'success' | 'error' | 'info') => {
         const id = Date.now();
@@ -137,12 +141,48 @@ const App: React.FC = () => {
                     console.log('🧹 Chat cleared');
                     setMessages([]);
                     break;
+                case 'toolExecutionStart':
+                    console.log('🛠️ Tool execution started:', message.payload.tools.length, 'tools');
+                    setToolStatus({
+                        isRunning: true,
+                        tools: message.payload.tools.map((t: any) => ({ ...t, status: 'pending' }))
+                    });
+                    break;
+
+                case 'toolStatus':
+                    console.log('🛠️ Tool status:', message.payload);
+                    setToolStatus((prev: any) => {
+                        if (!prev) return null;
+                        const updatedTools = prev.tools.map((t: any) => {
+                            if (t.id === message.payload.id) {
+                                return { ...t, status: message.payload.status };
+                            }
+                            return t;
+                        });
+                        // Check if all completed
+                        const allCompleted = updatedTools.every((t: any) => t.status === 'completed');
+                        if (allCompleted) {
+                            setTimeout(() => setToolStatus(null), 3000);
+                        }
+                        return { ...prev, tools: updatedTools };
+                    });
+                    break;
+
+                case 'fileSystemResponse':
+                    console.log('📁 File System Response:', message.payload);
+                    if (message.payload.status === 'error') {
+                        showToast(`Error: ${message.payload.error}`, 'error');
+                        // setToolStatus(null); // Keep it visible so user sees error? 
+                        // Or mark specific tool as error.
+                        // Currently just showing toast is okay.
+                    }
+                    break;
             }
         };
 
         window.addEventListener('message', messageHandler);
         return () => window.removeEventListener('message', messageHandler);
-    }, [currentModel]);
+    }, [currentModel, toolStatus]);
 
     useEffect(() => {
         document.documentElement.style.setProperty('--primary-color', settings.theme.primaryColor);
@@ -229,6 +269,7 @@ const App: React.FC = () => {
                     currentModel={currentModel}
                     settings={settings}
                     usageStats={usageStats}
+                    toolStatus={toolStatus}
                     onSendMessage={handleSendMessage}
                     onClearChat={handleClearChat}
                     onModelSwitch={handleModelSwitch}

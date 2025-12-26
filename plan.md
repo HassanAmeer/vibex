@@ -76,3 +76,26 @@ A powerful command center stuck to the bottom.
     *   `SettingsPanel` redesign.
 4.  **State Management**: Update `App.tsx` to handle session analytics without persistent storage.
 5.  **Styling**: Rewrite CSS for the "Professional Vibe".
+
+
+## 📝 Notes
+
+*   **Analytics**: Session-based analytics (reset on reload) as requested.
+*   **Icons**: Replace all emojis with custom **SVG Icons** (Lucide-react or similar style).
+*   **Colors**: Dark mode first. Usage of deep grays (`#1e1e1e`, `#252526`) with vibrant but refined accent colors.
+*   **Spacing**: Increased padding for a less cramped, "breathable" interface.
+*   **Motion**: Subtle transitions (fade-ins, slide-ups) for messages and panels. No jerky movements.
+*   **Borders**: Thin, subtle borders (`rgba(255,255,255,0.1)`) instead of heavy lines.
+
+# features
+- add node js commands library to automate a work liek crud files and folders.
+- user can prompt to ai model then every model thats for coddings its will generate a code like file or code proccess not at one time completion aafter showing
+should show which files and folders siss creatings and ts progress or lodings.
+- and analyze the code
+- can report the code and itss informaation and structure.
+- can finds errors
+- can fix errors
+- can debug code
+- can optimize code
+- when user want to update the code then it will update the code
+- whwen user promt then for testing then every actiosn in /gen folder to check or test its gebarte a code properly or not 

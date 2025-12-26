@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { StorageManager } from './managers/StorageManager';
 import { ContextManager } from './managers/ContextManager';
+import { FileSystemManager } from './managers/FileSystemManager';
 import { ModelClient } from './api/ModelClient';
 
 interface LogEntry {
@@ -17,6 +18,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     const storageManager = new StorageManager(context);
     const contextManager = new ContextManager();
+    const fileSystemManager = new FileSystemManager();
     const modelClient = new ModelClient();
 
     // Output channel for logging
@@ -215,6 +217,10 @@ export function activate(context: vscode.ExtensionContext) {
                     await applyCodeToFile(payload.code, payload.filePath);
                     break;
 
+                case 'fileSystemAction':
+                    await handleFileSystemAction(payload);
+                    break;
+
                 default:
                     console.log(`[VibeAll] Unknown message type: ${type}`);
             }
@@ -235,18 +241,40 @@ export function activate(context: vscode.ExtensionContext) {
         log('info', `Processing message with ${provider} (${modelId})`);
 
         try {
-            // Get context
-            const context = await contextManager.getFullContext();
+            // System Prompt with Tool Definitions
+            const systemPrompt = `You are VibeAll, an advanced AI coding assistant.
+You can perform file operations. To do so, output a single JSON block strictly in this format:
+\`\`\`json
+{
+  "tools": [
+    { "name": "createDirectory", "args": { "path": "project_name" } },
+    { "name": "createFile", "args": { "path": "project_name/src/index.ts", "content": "..." } }
+  ]
+}
+\`\`\`
+IMPORTANT Rules:
+1. ALWAYS create a root folder for the project first (e.g., "my-app"). All subsequent files must be inside this folder.
+2. Use "createDirectory" explicitly for subdirectories (e.g., "my-app/src").
+3. Use "createInGen" ONLY for quick isolated temporary tests.
+4. For full projects, use "createFile" and "createDirectory".
+5. Output the JSON block at the end of your response.`;
 
-            // Add context to the first message if available
-            const messagesWithContext = [...messages];
-            if (context && messagesWithContext.length > 0) {
-                messagesWithContext[0].content = `${context}\n\n${messagesWithContext[0].content}`;
+            // Add system prompt
+            let messagesWithContext = [...messages];
+            if (messagesWithContext.length > 0) {
+                messagesWithContext.unshift({ role: 'system', content: systemPrompt });
+            }
+
+            // Add retrieved context
+            if (context) {
+                const firstUserMsg = messagesWithContext.find(m => m.role === 'user');
+                if (firstUserMsg) {
+                    firstUserMsg.content = `[Context Files]:\n${context}\n\n${firstUserMsg.content}`;
+                }
             }
 
             // Ensure API key is loaded
             if (!modelClient.hasClient(provider)) {
-                // Try to load from storage one more time
                 const apiKey = await storageManager.getAPIKey(provider);
                 if (apiKey) {
                     modelClient.setAPIKey(provider, apiKey);
@@ -261,6 +289,51 @@ export function activate(context: vscode.ExtensionContext) {
                 messagesWithContext
             );
 
+            // Parse and Execute Tools
+            const content = response.content;
+
+            // Try matching code blocks first
+            let toolJsonString = null;
+            const codeBlockRegex = /```(?:json)?\s*({[\s\S]*?"tools"[\s\S]*?})\s*```/;
+            const match = content.match(codeBlockRegex);
+
+            if (match) {
+                toolJsonString = match[1];
+            } else {
+                // Fallback: try to find a raw JSON object containing "tools"
+                const rawJsonRegex = /({[\s\S]*?"tools"\s*:\s*\[[\s\S]*?}\s*])/;
+                const rawMatch = content.match(rawJsonRegex);
+                if (rawMatch) {
+                    toolJsonString = rawMatch[1];
+                }
+            }
+
+            if (toolJsonString) {
+                try {
+                    // unexpected token cleanup (sometimes models output trailing commas)
+                    // This is a simple parse try.
+                    const toolData = JSON.parse(toolJsonString);
+                    if (toolData.tools && Array.isArray(toolData.tools)) {
+                        log('info', `Found ${toolData.tools.length} tools to execute`);
+                        await executeTools(toolData.tools);
+                    }
+                } catch (e) {
+                    log('error', 'Failed to parse tool JSON', e);
+                    console.error('Raw JSON string that failed:', toolJsonString);
+                }
+            } else {
+                // Fallback: Parse standard code blocks as file creations
+                log('info', 'No tool JSON found, attempting to parse code blocks');
+                const extractedTools = parseCodeBlocksToTools(content);
+
+                if (extractedTools.length > 0) {
+                    log('info', `Found ${extractedTools.length} code blocks to turn into files`);
+                    await executeTools(extractedTools);
+                } else {
+                    log('info', 'No executable content found in response');
+                }
+            }
+
             // Save chat history
             const updatedMessages = [
                 ...messages,
@@ -270,7 +343,8 @@ export function activate(context: vscode.ExtensionContext) {
                     content: response.content,
                     timestamp: Date.now(),
                     model: modelId,
-                    tokens: response.usage?.total_tokens
+                    tokens: response.usage?.total_tokens,
+                    reasoning_details: response.reasoning_details
                 }
             ];
             await storageManager.saveChatHistory(updatedMessages);
@@ -292,7 +366,8 @@ export function activate(context: vscode.ExtensionContext) {
                     content: response.content,
                     model: modelId,
                     tokens: response.usage?.total_tokens,
-                    usedProvider: provider
+                    usedProvider: provider,
+                    reasoning_details: response.reasoning_details
                 }
             });
 
@@ -331,6 +406,137 @@ export function activate(context: vscode.ExtensionContext) {
             vscode.window.showErrorMessage(`Failed to apply code: ${error.message}`);
             log('error', 'Failed to apply code', error);
         }
+    }
+
+    async function handleFileSystemAction(payload: any) {
+        const { action, path: filePath, content } = payload;
+        try {
+            let result;
+            switch (action) {
+                case 'createFile':
+                    result = await fileSystemManager.createFile(filePath, content);
+                    log('info', `Created file: ${result}`);
+                    break;
+                case 'createDirectory':
+                    result = await fileSystemManager.createDirectory(filePath);
+                    log('info', `Created directory: ${result}`);
+                    break;
+                case 'readFile':
+                    result = await fileSystemManager.readFile(filePath);
+                    log('info', `Read file: ${filePath}`);
+                    break;
+                case 'listFiles':
+                    result = await fileSystemManager.listFiles(filePath);
+                    log('info', `Listed directory: ${filePath}`);
+                    break;
+                case 'createInGen':
+                    result = await fileSystemManager.createInGen(filePath, content);
+                    log('info', `Created in /gen: ${result}`);
+                    break;
+                default:
+                    throw new Error(`Unknown file command: ${action}`);
+            }
+
+            sendMessage({
+                type: 'fileSystemResponse',
+                payload: { action, result, status: 'success' }
+            });
+        } catch (error: any) {
+            log('error', `File system action failed: ${action}`, error);
+            sendMessage({
+                type: 'fileSystemResponse',
+                payload: { action, error: error.message, status: 'error' }
+            });
+        }
+    }
+
+
+    // Helper to execute tools with UI updates
+    async function executeTools(tools: any[]) {
+        sendMessage({
+            type: 'toolExecutionStart',
+            payload: {
+                tools: tools.map((t: any, i: number) => ({ ...t, id: i }))
+            }
+        });
+
+        for (let i = 0; i < tools.length; i++) {
+            const tool = tools[i];
+            sendMessage({
+                type: 'toolStatus',
+                payload: {
+                    id: i,
+                    status: 'running',
+                    tool: tool.name,
+                    path: tool.args.path || tool.args.filename
+                }
+            });
+
+            try {
+                await handleFileSystemAction({ action: tool.name, ...tool.args });
+                sendMessage({
+                    type: 'toolStatus',
+                    payload: { id: i, status: 'completed' }
+                });
+            } catch (toolError: any) {
+                sendMessage({
+                    type: 'toolStatus',
+                    payload: { id: i, status: 'error' }
+                });
+                log('error', `Tool error: ${tool.name}`, toolError);
+            }
+        }
+    }
+
+    function parseCodeBlocksToTools(content: string): any[] {
+        const tools: any[] = [];
+        // Regex to match code blocks: ```lang ... ```
+        const blockRegex = /```(\w+)?\n([\s\S]*?)```/g;
+        let match;
+
+        while ((match = blockRegex.exec(content)) !== null) {
+            const lang = match[1] || 'txt';
+            const code = match[2];
+
+            // Heuristic: Look inside the code (first few lines) for a comment like "// filename: src/file.ts"
+            // or look at the text immediately preceding the block
+
+            // 1. Check inside code
+            let filename = null;
+            const commentMatch = code.match(/^(?:\/\/|#|<!--)\s*(?:filename|file):\s*([^\s\n]+)/m);
+            if (commentMatch) {
+                filename = commentMatch[1];
+            }
+
+            // 2. Check preceding text (look back from match.index)
+            if (!filename) {
+                const precedingText = content.substring(Math.max(0, match.index - 100), match.index);
+                // Look for bold filename or explicit mention: "**index.html**" or "In `script.js`:"
+                const nameMatch = precedingText.match(/(?:`|\*\*)([\w-]+\.\w+)(?:`|\*\*)?/);
+                if (nameMatch) {
+                    filename = nameMatch[1];
+                }
+            }
+
+            // 3. Fallback based on language
+            if (!filename) {
+                const ext = lang === 'javascript' ? 'js' : lang === 'typescript' ? 'ts' : lang === 'python' ? 'py' : lang;
+                filename = `generated_file_${tools.length + 1}.${ext}`;
+            }
+
+            // Sanitize filename (remove quotes/paths if too complex, or just accept)
+            filename = filename.trim();
+
+            tools.push({
+                name: 'createFile',
+                args: {
+                    path: filename, // Best effort path
+                    content: code
+                }
+            });
+        }
+
+        return tools;
     }
 
     function sendMessage(message: any) {

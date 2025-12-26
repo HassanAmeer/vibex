@@ -124,3 +124,89 @@
         padding: 12px;
     }
 }
+
+/* --- Tool Status --- */
+.tool-status-container {
+    background: rgba(30, 30, 30, 0.95);
+    border-top: 1px solid var(--primary-color);
+    padding: 0;
+    font-size: 0.9em;
+    color: var(--vscode-foreground);
+    animation: slideUp 0.3s ease;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.tool-status-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    font-weight: 600;
+    background: rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.tool-list {
+    padding: 8px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.tool-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    opacity: 0.7;
+    transition: opacity 0.2s;
+}
+
+.tool-item.running {
+    opacity: 1;
+    color: var(--primary-color);
+}
+
+.tool-item.completed {
+    opacity: 0.8;
+    color: #4CAF50;
+    text-decoration: line-through;
+    /* Optional for completed look */
+}
+
+.tool-icon {
+    width: 16px;
+    text-align: center;
+}
+
+.tool-path {
+    font-family: monospace;
+    opacity: 0.8;
+}
+
+.tool-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--primary-color);
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}

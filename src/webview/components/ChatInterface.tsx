@@ -19,6 +19,10 @@ interface ChatInterfaceProps {
     onOpenSettings: () => void;
     onOpenLogs: () => void;
     onApplyCode: (code: string, filePath: string) => void;
+    toolStatus?: {
+        isRunning: boolean;
+        tools: { id: number; name: string; args: any; status: 'pending' | 'running' | 'completed' }[];
+    } | null;
 }
 
 const ChatInterface: React.FC<ChatInterfaceProps> = ({
@@ -32,7 +36,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     onModelSwitch,
     onOpenSettings,
     onOpenLogs,
-    onApplyCode
+    onApplyCode,
+    toolStatus
 }: ChatInterfaceProps) => {
     const [showDashboard, setShowDashboard] = useState(false);
 
@@ -82,6 +87,30 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 isLoading={isLoading}
                 onApplyCode={onApplyCode}
             />
+
+            {/* Tool Status Bar */}
+            {toolStatus && toolStatus.isRunning && (
+                <div className="tool-status-container">
+                    <div className="tool-status-header">
+                        <div className="tool-spinner"></div>
+                        <span>Executing Plan ({toolStatus.tools.filter(t => t.status === 'completed').length}/{toolStatus.tools.length})</span>
+                    </div>
+                    <div className="tool-list">
+                        {toolStatus.tools.map((tool) => (
+                            <div key={tool.id} className={`tool-item ${tool.status}`}>
+                                <span className="tool-icon">
+                                    {tool.status === 'completed' ? '✓' : tool.status === 'running' ? '⏳' : '○'}
+                                </span>
+                                <span className="tool-desc">
+                                    {tool.name === 'createDirectory' ? '📁 Create folder' : '📄 Write file'}
+                                    {' '}
+                                    <span className="tool-path">{tool.args.path || tool.args.filename}</span>
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {/* Footer: Input and Breadcrumbs */}
             <div className="chat-footer">
