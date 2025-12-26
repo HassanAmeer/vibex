@@ -184,6 +184,59 @@ export function activate(context: vscode.ExtensionContext) {
                     break;
                 }
 
+                case 'getAPIKeys':
+                    // Send all stored API keys to webview
+                    try {
+                        const allKeys = await storageManager.getAllAPIKeys();
+                        const keysMap: any = {};
+                        allKeys.forEach(k => keysMap[k.provider] = k.key);
+                        sendMessage({
+                            type: 'apiKeysLoaded',
+                            payload: keysMap
+                        });
+                        log('info', `Loaded ${allKeys.length} API keys`);
+                    } catch (error: any) {
+                        log('error', `Failed to load API keys: ${error.message}`);
+                    }
+                    break;
+
+                case 'saveAPIKey':
+                    // Save API key and send confirmation
+                    try {
+                        const { provider, key } = payload;
+                        await storageManager.storeAPIKey(provider, key);
+                        modelClient.setAPIKey(provider, key);
+
+                        sendMessage({
+                            type: 'apiKeySaved',
+                            payload: { provider, success: true }
+                        });
+                        log('info', `Saved API key for ${provider}`);
+                    } catch (error: any) {
+                        log('error', `Failed to save API key: ${error.message}`);
+                        sendMessage({
+                            type: 'apiKeyError',
+                            payload: { error: error.message }
+                        });
+                    }
+                    break;
+
+                case 'deleteAPIKey':
+                    // Delete API key and send confirmation
+                    try {
+                        const { provider } = payload;
+                        await storageManager.deleteAPIKey(provider);
+
+                        sendMessage({
+                            type: 'apiKeyDeleted',
+                            payload: { provider, success: true }
+                        });
+                        log('info', `Deleted API key for ${provider}`);
+                    } catch (error: any) {
+                        log('error', `Failed to delete API key: ${error.message}`);
+                    }
+                    break;
+
                 case 'storeAPIKey':
                     try {
                         const { provider, key } = payload;

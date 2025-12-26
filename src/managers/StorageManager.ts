@@ -27,7 +27,10 @@ export class StorageManager {
     }
 
     async getAllAPIKeys(): Promise<APIKey[]> {
-        const providers = ['groq', 'google', 'openai', 'cerebras', 'deepseek', 'sambanova', 'anthropic'];
+        const providers = [
+            'groq', 'google', 'openai', 'cerebras', 'deepseek', 'sambanova',
+            'anthropic', 'xai', 'novita', 'bytez', 'aimlapi', 'openrouter'
+        ];
         const keys: APIKey[] = [];
 
         for (const provider of providers) {

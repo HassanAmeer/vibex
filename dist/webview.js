@@ -35350,6 +35350,33 @@ const App = () => {
                         showToast(analysisMsg, 'info');
                     }
                     break;
+                case 'apiKeysLoaded':
+                    console.log('🔑 API Keys Loaded:', Object.keys(message.payload).length);
+                    setApiKeys(message.payload);
+                    break;
+                case 'apiKeySaved':
+                    if (message.payload.success) {
+                        showToast(`✅ API key for ${message.payload.provider} saved!`, 'success');
+                        // Update local state
+                        vscode.postMessage({ type: 'getAPIKeys' });
+                    }
+                    break;
+                case 'apiKeyDeleted':
+                    if (message.payload.success) {
+                        showToast(`🗑️ API key for ${message.payload.provider} deleted!`, 'success');
+                        // Update local state
+                        setApiKeys(prev => {
+                            const updated = { ...prev };
+                            delete updated[message.payload.provider];
+                            return updated;
+                        });
+                    }
+                    break;
+                case 'apiKeyStored':
+                    // Legacy handler
+                    showToast(`✅ API key for ${message.payload.provider} saved!`, 'success');
+                    vscode.postMessage({ type: 'getAPIKeys' });
+                    break;
             }
         };
         window.addEventListener('message', messageHandler);
@@ -38494,6 +38521,10 @@ const SettingsPanel = ({ settings, savedApiKeys, onUpdate, onClose }) => {
         const initialHiddenState = {};
         providers.forEach(p => initialHiddenState[p.id] = true);
         setHiddenKeys(initialHiddenState);
+        // Request API keys from extension when panel opens
+        if (typeof vscode !== 'undefined') {
+            vscode.postMessage({ type: 'getAPIKeys' });
+        }
     }, []);
     const handleToggle = (key) => {
         const newSettings = {

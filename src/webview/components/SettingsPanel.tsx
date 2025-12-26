@@ -4,6 +4,8 @@ import { THEME_PRESETS } from '../../constants/theme';
 import { Icons } from './Icons';
 import './SettingsPanel.css';
 
+declare const vscode: any;
+
 interface SettingsPanelProps {
     settings: ExtensionSettings;
     savedApiKeys: { [key: string]: string };
@@ -29,6 +31,11 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
         const initialHiddenState: any = {};
         providers.forEach(p => initialHiddenState[p.id] = true);
         setHiddenKeys(initialHiddenState);
+
+        // Request API keys from extension when panel opens
+        if (typeof vscode !== 'undefined') {
+            vscode.postMessage({ type: 'getAPIKeys' });
+        }
     }, []);
 
     const handleToggle = (key: keyof ExtensionSettings) => {

@@ -87,7 +87,7 @@ A powerful command center stuck to the bottom.
 *   **Motion**: Subtle transitions (fade-ins, slide-ups) for messages and panels. No jerky movements.
 *   **Borders**: Thin, subtle borders (`rgba(255,255,255,0.1)`) instead of heavy lines.
 
-# features
+# features or buttons options
 - add node js commands library to automate a work liek crud files and folders.
 - user can prompt to ai model then every model thats for coddings its will generate a code like file or code proccess not at one time completion aafter showing
 should show which files and folders siss creatings and ts progress or lodings.
@@ -98,4 +98,4 @@ should show which files and folders siss creatings and ts progress or lodings.
 - can debug code
 - can optimize code
 - when user want to update the code then it will update the code
-- whwen user promt then for testing then every actiosn in /gen folder to check or test its gebarte a code properly or not 
+- when user promt then for testing then every actiosn in /gen folder to check or test its gebarte a code properly or not  
