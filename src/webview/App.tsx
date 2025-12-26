@@ -172,9 +172,18 @@ const App: React.FC = () => {
                     console.log('📁 File System Response:', message.payload);
                     if (message.payload.status === 'error') {
                         showToast(`Error: ${message.payload.error}`, 'error');
-                        // setToolStatus(null); // Keep it visible so user sees error? 
-                        // Or mark specific tool as error.
-                        // Currently just showing toast is okay.
+                    }
+                    break;
+
+                case 'codeAnalysis':
+                    console.log('🔍 Code Analysis:', message.payload);
+                    const { file, analysis, securityIssues, suggestions, metrics } = message.payload;
+                    let analysisMsg = `📊 ${file}: Complexity ${metrics.complexity}, Maintainability ${metrics.maintainability}%`;
+
+                    if (securityIssues.length > 0) {
+                        showToast(`🔒 Security issues in ${file}`, 'error');
+                    } else if (analysis.issues.length > 0) {
+                        showToast(analysisMsg, 'info');
                     }
                     break;
             }

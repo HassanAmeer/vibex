@@ -1,1 +1,1446 @@
-(()=>{"use strict";var e={11(e,t){Object.defineProperty(t,"__esModule",{value:!0}),t.BaseAPIClient=void 0,t.BaseAPIClient=class{constructor(e,t){this.apiKey=e,this.baseURL=t}async makeRequest(e,t,o){const s=await fetch(`${this.baseURL}${e}`,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${this.apiKey}`,...o?.headers},body:JSON.stringify(t),...o});if(!s.ok)throw new Error(`API request failed: ${s.statusText}`);return s}}},240(e,t,o){Object.defineProperty(t,"__esModule",{value:!0}),t.BytezClient=void 0;const s=o(11);class n extends s.BaseAPIClient{constructor(e){super(e,"https://api.bytez.com/models/v2")}async sendMessage(e,t){let o=t;const s=e.includes("sentence-transformers")||e.includes("bge")||e.includes("nomic")||e.includes("clip")||e.includes("siglip"),n=e.includes("stable")||e.includes("whisper")||e.includes("bark");if(s||n){const e=t[t.length-1];o=e?e.content:""}const a={input:o};s||e.includes("whisper")||e.includes("bark")||(a.params={max_tokens:1024,temperature:.7});const i=await this.makeRequest(`/${e}`,a),r=(await i.json()).output;let c="";return c="string"==typeof r?r:Array.isArray(r)&&r[0]&&r[0].content?r[0].content:JSON.stringify(r),{content:c,done:!0,model:e,tokens:0}}async makeRequest(e,t){const o=`${this.baseURL}${e}`,s={"Content-Type":"application/json",Authorization:`Key ${this.apiKey}`},n=await fetch(o,{method:"POST",headers:s,body:JSON.stringify(t)});if(!n.ok){const e=await n.text();throw new Error(`API Request Failed: ${n.status} ${n.statusText} - ${e}`)}return n}}t.BytezClient=n},265(e,t,o){var s,n=this&&this.__createBinding||(Object.create?function(e,t,o,s){void 0===s&&(s=o);var n=Object.getOwnPropertyDescriptor(t,o);n&&!("get"in n?!t.__esModule:n.writable||n.configurable)||(n={enumerable:!0,get:function(){return t[o]}}),Object.defineProperty(e,s,n)}:function(e,t,o,s){void 0===s&&(s=o),e[s]=t[o]}),a=this&&this.__setModuleDefault||(Object.create?function(e,t){Object.defineProperty(e,"default",{enumerable:!0,value:t})}:function(e,t){e.default=t}),i=this&&this.__importStar||(s=function(e){return s=Object.getOwnPropertyNames||function(e){var t=[];for(var o in e)Object.prototype.hasOwnProperty.call(e,o)&&(t[t.length]=o);return t},s(e)},function(e){if(e&&e.__esModule)return e;var t={};if(null!=e)for(var o=s(e),i=0;i<o.length;i++)"default"!==o[i]&&n(t,e,o[i]);return a(t,e),t});Object.defineProperty(t,"__esModule",{value:!0}),t.activate=function(e){console.log("VibeAll extension is now active!");const t=new l.StorageManager(e),o=(new d.ContextManager,new p.FileSystemManager),s=new u.ModelClient,n=r.window.createOutputChannel("VibeAll");let a,i=[];function g(e,t,o){const s={id:Date.now().toString()+Math.random().toString(36).substr(2,9),timestamp:Date.now(),level:e,message:t,details:o};i.push(s),i.length>1e3&&(i=i.slice(i.length-1e3));const a=new Date(s.timestamp).toLocaleTimeString();n.appendLine(`[${a}] [${e.toUpperCase()}] ${t}`),o&&n.appendLine(JSON.stringify(o,null,2)),w({type:"newLog",payload:s})}!async function(){try{const e=await t.getAllAPIKeys();e.forEach(({provider:e,key:t})=>{s.setAPIKey(e,t),g("info",`Loaded API key for ${e}`,{keyLength:t.length})}),g("info",`Loaded ${e.length} API keys`)}catch(e){g("error","Failed to load API keys",e)}}();const h=()=>{const o=r.window.activeTextEditor?r.window.activeTextEditor.viewColumn:void 0;if(a)return void a.reveal(o);a=r.window.createWebviewPanel("vibeall","VibeAll AI Assistant",r.ViewColumn.Two,{enableScripts:!0,retainContextWhenHidden:!0,localResourceRoots:[r.Uri.file(c.join(e.extensionPath,"dist"))]});const n=a.webview.asWebviewUri(r.Uri.file(c.join(e.extensionPath,"dist","webview.js")));a.webview.html=function(e){return`<!DOCTYPE html>\n<html lang="en">\n<head>\n    <meta charset="UTF-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n    <title>VibeAll AI Assistant</title>\n    <style>\n        body {\n            margin: 0;\n            padding: 0;\n            overflow: hidden;\n        }\n        #root {\n            width: 100vw;\n            height: 100vh;\n        }\n    </style>\n</head>\n<body>\n    <div id="root"></div>\n    <script src="${e}"><\/script>\n</body>\n</html>`}(n),a.webview.onDidReceiveMessage(async o=>{await async function(o){const{type:n,payload:a}=o;try{switch(n){case"getSettings":w({type:"settings",payload:t.getSettings()});break;case"updateSettings":await t.updateSettings(a),g("info","Settings updated");break;case"getChatHistory":w({type:"chatHistory",payload:t.getChatHistory()});break;case"clearChat":await t.clearChatHistory(),w({type:"chatCleared"}),g("info","Chat history cleared");break;case"getLogs":w({type:"logs",payload:i});break;case"clearLogs":i=[],w({type:"logs",payload:[]});break;case"getUsageStats":w({type:"usageStats",payload:t.getUsageStats()});break;case"getAPIKeys":w({type:"apiKeys",payload:await t.getAllAPIKeys()});break;case"storeAPIKey":try{const{provider:e,key:o}=a;await t.storeAPIKey(e,o),s.setAPIKey(e,o),g("info",`API key stored for ${e}`),w({type:"apiKeyStored",payload:{provider:e}})}catch(e){g("error",`Failed to store API key: ${e.message}`),w({type:"apiKeyError",payload:{error:e.message}})}break;case"sendMessage":await async function(o){const{messages:n,provider:a,modelId:i}=o;w({type:"messageLoading"}),g("info",`Processing message with ${a} (${i})`);try{const o='You are VibeAll, an advanced AI coding assistant.\nYou can perform file operations. To do so, output a single JSON block strictly in this format:\n```json\n{\n  "tools": [\n    { "name": "createDirectory", "args": { "path": "project_name" } },\n    { "name": "createFile", "args": { "path": "project_name/src/index.ts", "content": "..." } }\n  ]\n}\n```\nIMPORTANT Rules:\n1. ALWAYS create a root folder for the project first (e.g., "my-app"). All subsequent files must be inside this folder.\n2. Use "createDirectory" explicitly for subdirectories (e.g., "my-app/src").\n3. Use "createInGen" ONLY for quick isolated temporary tests.\n4. For full projects, use "createFile" and "createDirectory".\n5. Output the JSON block at the end of your response.';let r=[...n];if(r.length>0&&r.unshift({role:"system",content:o}),e){const t=r.find(e=>"user"===e.role);t&&(t.content=`[Context Files]:\n${e}\n\n${t.content}`)}if(!s.hasClient(a)){const e=await t.getAPIKey(a);if(!e)throw new Error(`No API key found for ${a}. Please add one in settings.`);s.setAPIKey(a,e)}const c=await s.sendMessage({provider:a,modelId:i},r),l=c.content;let d=null;const p=/```(?:json)?\s*({[\s\S]*?"tools"[\s\S]*?})\s*```/,u=l.match(p);if(u)d=u[1];else{const e=/({[\s\S]*?"tools"\s*:\s*\[[\s\S]*?}\s*])/,t=l.match(e);t&&(d=t[1])}if(d)try{const e=JSON.parse(d);e.tools&&Array.isArray(e.tools)&&(g("info",`Found ${e.tools.length} tools to execute`),await f(e.tools))}catch(e){g("error","Failed to parse tool JSON",e),console.error("Raw JSON string that failed:",d)}else{g("info","No tool JSON found, attempting to parse code blocks");const e=function(e){const t=[],o=/```(\w+)?\n([\s\S]*?)```/g;let s;for(;null!==(s=o.exec(e));){const o=s[1]||"txt",n=s[2];let a=null;const i=n.match(/^(?:\/\/|#|<!--)\s*(?:filename|file):\s*([^\s\n]+)/m);if(i&&(a=i[1]),!a){const t=e.substring(Math.max(0,s.index-100),s.index).match(/(?:`|\*\*)([\w-]+\.\w+)(?:`|\*\*)?/);t&&(a=t[1])}if(!a){const e="javascript"===o?"js":"typescript"===o?"ts":"python"===o?"py":o;a=`generated_file_${t.length+1}.${e}`}a=a.trim(),t.push({name:"createFile",args:{path:a,content:n}})}return t}(l);e.length>0?(g("info",`Found ${e.length} code blocks to turn into files`),await f(e)):g("info","No executable content found in response")}const h=[...n,{id:Date.now().toString(),role:"assistant",content:c.content,timestamp:Date.now(),model:i,tokens:c.usage?.total_tokens,reasoning_details:c.reasoning_details}];await t.saveChatHistory(h);const y=t.getUsageStats();y[a]||(y[a]={requests:0,tokens:0,lastUsed:0}),y[a].requests+=1,y[a].tokens+=c.usage?.total_tokens||0,y[a].lastUsed=Date.now(),await t.updateUsageStats(y),w({type:"messageResponse",payload:{content:c.content,model:i,tokens:c.usage?.total_tokens,usedProvider:a,reasoning_details:c.reasoning_details}}),g("info",`AI Response received from ${a}`,{tokens:c.usage?.total_tokens})}catch(e){g("error",`AI processing failed: ${e.message}`,e),w({type:"messageError",payload:{error:e.message}})}}(a);break;case"switchModel":g("info",`Switched model to ${a.provider} / ${a.modelId}`);break;case"applyCode":await async function(e){try{const t=r.window.activeTextEditor;if(!t)return void r.window.showErrorMessage("No active editor");await t.edit(o=>{const s=t.document,n=s.lineAt(s.lineCount-1),a=new r.Range(new r.Position(0,0),n.range.end);o.replace(a,e)}),r.window.showInformationMessage("Code applied successfully!"),g("info","Code applied to file")}catch(e){r.window.showErrorMessage(`Failed to apply code: ${e.message}`),g("error","Failed to apply code",e)}}(a.code,a.filePath);break;case"fileSystemAction":await y(a);break;default:console.log(`[VibeAll] Unknown message type: ${n}`)}}catch(e){console.error("[VibeAll] Error handling message:",e),g("error",`Error handling message ${n}`,e),w({type:"error",payload:{error:e.message}})}}(o)},void 0,e.subscriptions),a.onDidDispose(()=>{a=void 0},null,e.subscriptions)};async function y(e){const{action:t,path:s,content:n}=e;try{let e;switch(t){case"createFile":e=await o.createFile(s,n),g("info",`Created file: ${e}`);break;case"createDirectory":e=await o.createDirectory(s),g("info",`Created directory: ${e}`);break;case"readFile":e=await o.readFile(s),g("info",`Read file: ${s}`);break;case"listFiles":e=await o.listFiles(s),g("info",`Listed directory: ${s}`);break;case"createInGen":e=await o.createInGen(s,n),g("info",`Created in /gen: ${e}`);break;default:throw new Error(`Unknown file command: ${t}`)}w({type:"fileSystemResponse",payload:{action:t,result:e,status:"success"}})}catch(e){g("error",`File system action failed: ${t}`,e),w({type:"fileSystemResponse",payload:{action:t,error:e.message,status:"error"}})}}async function f(e){w({type:"toolExecutionStart",payload:{tools:e.map((e,t)=>({...e,id:t}))}});for(let t=0;t<e.length;t++){const o=e[t];w({type:"toolStatus",payload:{id:t,status:"running",tool:o.name,path:o.args.path||o.args.filename}});try{await y({action:o.name,...o.args}),w({type:"toolStatus",payload:{id:t,status:"completed"}})}catch(e){w({type:"toolStatus",payload:{id:t,status:"error"}}),g("error",`Tool error: ${o.name}`,e)}}}function w(e){a&&a.webview.postMessage(e)}const m=r.commands.registerCommand("vibeall.open",h),b=r.commands.registerCommand("vibeall.openSettings",()=>{h(),setTimeout(()=>{w({type:"showSettings"})},500)});e.subscriptions.push(m,b),h()},t.deactivate=function(){console.log("VibeAll extension is now deactivated")};const r=i(o(398)),c=i(o(928)),l=o(361),d=o(827),p=o(431),u=o(485)},361(e,t){Object.defineProperty(t,"__esModule",{value:!0}),t.StorageManager=void 0,t.StorageManager=class{constructor(e){this.context=e,this.secretStorage=e.secrets}async storeAPIKey(e,t){const o=`vibeall.apikey.${e.toLowerCase()}`;await this.secretStorage.store(o,t),console.log(`[StorageManager] Stored API key for ${e}`)}async getAPIKey(e){const t=`vibeall.apikey.${e.toLowerCase()}`;return await this.secretStorage.get(t)}async getAllAPIKeys(){const e=["groq","google","openai","cerebras","deepseek","sambanova","anthropic"],t=[];for(const o of e){const e=await this.getAPIKey(o);e&&t.push({provider:o,key:e})}return t}async deleteAPIKey(e){const t=`vibeall.apikey.${e.toLowerCase()}`;await this.secretStorage.delete(t),console.log(`[StorageManager] Deleted API key for ${e}`)}getSettings(){return this.context.globalState.get("vibeall.settings",{autoRunCommands:!1,autoApplyEdits:!1,showMiniDashboard:!0,compactMode:!1,alwaysShowPlan:!1,planMode:!1,theme:{primaryColor:"#FF5722",accentColor:"#FF9800",mode:"dark"}})}async updateSettings(e){await this.context.globalState.update("vibeall.settings",e),console.log("[StorageManager] Settings updated")}getChatHistory(){return this.context.globalState.get("vibeall.chatHistory",[])}async saveChatHistory(e){await this.context.globalState.update("vibeall.chatHistory",e)}async clearChatHistory(){await this.context.globalState.update("vibeall.chatHistory",[]),console.log("[StorageManager] Chat history cleared")}getUsageStats(){return this.context.globalState.get("vibeall.usageStats",{})}async updateUsageStats(e){await this.context.globalState.update("vibeall.usageStats",e)}}},398(e){e.exports=require("vscode")},431(e,t,o){var s,n=this&&this.__createBinding||(Object.create?function(e,t,o,s){void 0===s&&(s=o);var n=Object.getOwnPropertyDescriptor(t,o);n&&!("get"in n?!t.__esModule:n.writable||n.configurable)||(n={enumerable:!0,get:function(){return t[o]}}),Object.defineProperty(e,s,n)}:function(e,t,o,s){void 0===s&&(s=o),e[s]=t[o]}),a=this&&this.__setModuleDefault||(Object.create?function(e,t){Object.defineProperty(e,"default",{enumerable:!0,value:t})}:function(e,t){e.default=t}),i=this&&this.__importStar||(s=function(e){return s=Object.getOwnPropertyNames||function(e){var t=[];for(var o in e)Object.prototype.hasOwnProperty.call(e,o)&&(t[t.length]=o);return t},s(e)},function(e){if(e&&e.__esModule)return e;var t={};if(null!=e)for(var o=s(e),i=0;i<o.length;i++)"default"!==o[i]&&n(t,e,o[i]);return a(t,e),t});Object.defineProperty(t,"__esModule",{value:!0}),t.FileSystemManager=void 0;const r=i(o(398)),c=i(o(896)),l=i(o(928));t.FileSystemManager=class{constructor(){this.workspaceRoot=r.workspace.workspaceFolders?.[0].uri.fsPath,this.sandboxRoot=this.workspaceRoot?l.join(this.workspaceRoot,"gen"):""}getAbsolutePath(e){if(!this.workspaceRoot)throw new Error("No workspace open");return l.isAbsolute(e)?(e.startsWith(this.workspaceRoot),e):l.join(this.workspaceRoot,e)}ensureSandbox(e){e.startsWith(this.sandboxRoot)}async createFile(e,t){const o=this.getAbsolutePath(e);return await this.ensureDirectoryExists(l.dirname(o)),await c.promises.writeFile(o,t,"utf8"),o}async createDirectory(e){const t=this.getAbsolutePath(e);return await c.promises.mkdir(t,{recursive:!0}),t}async readFile(e){const t=this.getAbsolutePath(e);return await c.promises.readFile(t,"utf8")}async listFiles(e){const t=this.getAbsolutePath(e);return(await c.promises.readdir(t,{withFileTypes:!0})).map(t=>l.join(e,t.name))}async deleteFile(e){const t=this.getAbsolutePath(e);await c.promises.unlink(t)}async ensureDirectoryExists(e){try{await c.promises.access(e)}catch{await c.promises.mkdir(e,{recursive:!0})}}async createInGen(e,t){if(!this.workspaceRoot)throw new Error("No workspace");const o=l.join(this.workspaceRoot,"gen",e);return await this.createFile(o,t),o}}},441(e,t,o){Object.defineProperty(t,"__esModule",{value:!0}),t.GroqClient=void 0;const s=o(11);class n extends s.BaseAPIClient{constructor(e){super(e,"https://api.groq.com/openai/v1")}async sendMessage(e,t){const o=await this.makeRequest("/chat/completions",{model:e,messages:t,temperature:.7,max_tokens:8192}),s=await o.json();return{content:s.choices[0].message.content,done:!0,model:s.model,tokens:s.usage?.total_tokens}}}t.GroqClient=n},485(e,t,o){Object.defineProperty(t,"__esModule",{value:!0}),t.ModelClient=void 0;const s=o(441),n=o(791),a=o(778),i=o(860),r=o(240);t.ModelClient=class{constructor(){this.clients=new Map}setAPIKey(e,t){const o=e.toLowerCase();switch(o){case"groq":this.clients.set("groq",new s.GroqClient(t));break;case"google":this.clients.set("google",new n.GoogleClient(t));break;case"anthropic":this.clients.set("anthropic",new i.AnthropicClient(t));break;case"openai":case"cerebras":case"deepseek":case"sambanova":case"xai":case"novita":case"aimlapi":case"openrouter":this.clients.set(o,new a.OpenAIClient(t,o));break;case"bytez":this.clients.set("bytez",new r.BytezClient(t))}}async sendMessage(e,t){const{provider:o,modelId:s,apiKey:n}=e;n&&this.setAPIKey(o,n);const a=this.clients.get(o.toLowerCase());if(!a)throw new Error(`No API key configured for provider: ${o}`);return await a.sendMessage(s,t)}hasClient(e){return this.clients.has(e.toLowerCase())}getAvailableProviders(){return Array.from(this.clients.keys())}}},778(e,t,o){Object.defineProperty(t,"__esModule",{value:!0}),t.OpenAIClient=void 0;const s=o(11);class n extends s.BaseAPIClient{constructor(e,t="openai"){const o={openai:"https://api.openai.com/v1",cerebras:"https://api.cerebras.ai/v1",deepseek:"https://api.deepseek.com/v1",sambanova:"https://api.sambanova.ai/v1",xai:"https://api.x.ai/v1",novita:"https://api.novita.ai/openai",aimlapi:"https://api.aimlapi.com/v1",openrouter:"https://openrouter.ai/api/v1"};super(e,o[t]||o.openai),this.provider=t}async sendMessage(e,t){const o={model:e,messages:t,temperature:.7,max_tokens:"kat-coder"===e?1e3:4096};"openrouter"===this.provider&&(e.includes("think")||e.includes("reason"))&&(o.reasoning={enabled:!0});const s=await this.makeRequest("/chat/completions",o),n=await s.json();return{content:n.choices[0].message.content,done:!0,model:n.model,tokens:n.usage?.total_tokens,reasoning_details:n.choices[0].message.reasoning_details}}}t.OpenAIClient=n},791(e,t,o){Object.defineProperty(t,"__esModule",{value:!0}),t.GoogleClient=void 0;const s=o(11);class n extends s.BaseAPIClient{constructor(e){super(e,"https://generativelanguage.googleapis.com/v1beta")}async sendMessage(e,t){const o=t.map(e=>({role:"assistant"===e.role?"model":"user",parts:[{text:e.content}]})),s=await fetch(`${this.baseURL}/models/${e}:generateContent?key=${this.apiKey}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({contents:o})});if(!s.ok)throw new Error(`Gemini API error: ${s.statusText}`);const n=await s.json();return{content:n.candidates[0].content.parts[0].text,done:!0,model:e,tokens:n.usageMetadata?.totalTokenCount}}}t.GoogleClient=n},827(e,t,o){var s,n=this&&this.__createBinding||(Object.create?function(e,t,o,s){void 0===s&&(s=o);var n=Object.getOwnPropertyDescriptor(t,o);n&&!("get"in n?!t.__esModule:n.writable||n.configurable)||(n={enumerable:!0,get:function(){return t[o]}}),Object.defineProperty(e,s,n)}:function(e,t,o,s){void 0===s&&(s=o),e[s]=t[o]}),a=this&&this.__setModuleDefault||(Object.create?function(e,t){Object.defineProperty(e,"default",{enumerable:!0,value:t})}:function(e,t){e.default=t}),i=this&&this.__importStar||(s=function(e){return s=Object.getOwnPropertyNames||function(e){var t=[];for(var o in e)Object.prototype.hasOwnProperty.call(e,o)&&(t[t.length]=o);return t},s(e)},function(e){if(e&&e.__esModule)return e;var t={};if(null!=e)for(var o=s(e),i=0;i<o.length;i++)"default"!==o[i]&&n(t,e,o[i]);return a(t,e),t});Object.defineProperty(t,"__esModule",{value:!0}),t.ContextManager=void 0;const r=i(o(398));t.ContextManager=class{async getActiveFileContext(){const e=r.window.activeTextEditor;if(!e)return"";const t=e.document,o=e.selection;let s=`File: ${t.fileName}\n`;return s+=`Language: ${t.languageId}\n\n`,o.isEmpty?(s+=`Full file content:\n\`\`\`${t.languageId}\n`,s+=t.getText(),s+="\n```\n"):(s+=`Selected code:\n\`\`\`${t.languageId}\n`,s+=t.getText(o),s+="\n```\n"),s}async getWorkspaceContext(){const e=r.workspace.workspaceFolders;if(!e||0===e.length)return"";let t="Workspace Information:\n";t+=`Root: ${e[0].uri.fsPath}\n`;try{const o=r.Uri.joinPath(e[0].uri,"package.json"),s=await r.workspace.fs.readFile(o),n=JSON.parse(s.toString());t+="\nProject Dependencies:\n",n.dependencies&&(t+="Dependencies: "+Object.keys(n.dependencies).join(", ")+"\n"),n.devDependencies&&(t+="DevDependencies: "+Object.keys(n.devDependencies).join(", ")+"\n")}catch(e){}return t}async getDiagnosticsContext(){const e=r.window.activeTextEditor;if(!e)return"";const t=r.languages.getDiagnostics(e.document.uri);if(0===t.length)return"";let o="\nCurrent Errors/Warnings:\n";return t.forEach((e,t)=>{const s=e.severity===r.DiagnosticSeverity.Error?"ERROR":"WARNING";o+=`${t+1}. [${s}] Line ${e.range.start.line+1}: ${e.message}\n`}),o}async getFullContext(){const e=await this.getActiveFileContext();return`${await this.getWorkspaceContext()}\n${e}\n${await this.getDiagnosticsContext()}`}}},860(e,t,o){Object.defineProperty(t,"__esModule",{value:!0}),t.AnthropicClient=void 0;const s=o(11);class n extends s.BaseAPIClient{constructor(e){super(e,"https://api.anthropic.com/v1")}async sendMessage(e,t){let o="";const s={model:e,messages:t.filter(e=>"system"!==e.role||(o+=e.content+"\n",!1)),max_tokens:8192,system:o.trim()||void 0},n=await fetch(`${this.baseURL}/messages`,{method:"POST",headers:{"Content-Type":"application/json","x-api-key":this.apiKey,"anthropic-version":"2023-06-01"},body:JSON.stringify(s)});if(!n.ok){const e=await n.text();throw new Error(`Anthropic API error: ${n.status} - ${e}`)}const a=await n.json();return{content:a.content[0].text,done:!0,model:a.model,tokens:a.usage?.output_tokens}}}t.AnthropicClient=n},896(e){e.exports=require("fs")},928(e){e.exports=require("path")}},t={},o=function o(s){var n=t[s];if(void 0!==n)return n.exports;var a=t[s]={exports:{}};return e[s].call(a.exports,a,a.exports,o),a.exports}(265),s=exports;for(var n in o)s[n]=o[n];o.__esModule&&Object.defineProperty(s,"__esModule",{value:!0})})();
+/******/ (() => { // webpackBootstrap
+/******/ 	"use strict";
+/******/ 	var __webpack_modules__ = ([
+/* 0 */
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.activate = activate;
+exports.deactivate = deactivate;
+const vscode = __importStar(__webpack_require__(1));
+const path = __importStar(__webpack_require__(2));
+const StorageManager_1 = __webpack_require__(3);
+const ContextManager_1 = __webpack_require__(4);
+const FileSystemManager_1 = __webpack_require__(5);
+const ModelClient_1 = __webpack_require__(7);
+function activate(context) {
+    console.log('VibeAll extension is now active!');
+    const storageManager = new StorageManager_1.StorageManager(context);
+    const contextManager = new ContextManager_1.ContextManager();
+    const fileSystemManager = new FileSystemManager_1.FileSystemManager();
+    const modelClient = new ModelClient_1.ModelClient();
+    // Output channel for logging
+    const outputChannel = vscode.window.createOutputChannel('VibeAll');
+    // In-memory logs
+    let logs = [];
+    function log(level, message, details) {
+        const entry = {
+            id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+            timestamp: Date.now(),
+            level,
+            message,
+            details
+        };
+        logs.push(entry);
+        // Keep only last 1000 logs
+        if (logs.length > 1000) {
+            logs = logs.slice(logs.length - 1000);
+        }
+        // Send to output channel
+        const timestamp = new Date(entry.timestamp).toLocaleTimeString();
+        outputChannel.appendLine(`[${timestamp}] [${level.toUpperCase()}] ${message}`);
+        if (details) {
+            outputChannel.appendLine(JSON.stringify(details, null, 2));
+        }
+        // Broadcast to webview
+        sendMessage({
+            type: 'newLog',
+            payload: entry
+        });
+    }
+    // Load API keys on startup
+    loadAPIKeys();
+    async function loadAPIKeys() {
+        try {
+            const apiKeys = await storageManager.getAllAPIKeys();
+            apiKeys.forEach(({ provider, key }) => {
+                modelClient.setAPIKey(provider, key);
+                log('info', `Loaded API key for ${provider}`, { keyLength: key.length });
+            });
+            log('info', `Loaded ${apiKeys.length} API keys`);
+        }
+        catch (error) {
+            log('error', 'Failed to load API keys', error);
+        }
+    }
+    // Create webview panel
+    let currentPanel = undefined;
+    const showWebview = () => {
+        const columnToShowIn = vscode.window.activeTextEditor
+            ? vscode.window.activeTextEditor.viewColumn
+            : undefined;
+        if (currentPanel) {
+            currentPanel.reveal(columnToShowIn);
+            return;
+        }
+        currentPanel = vscode.window.createWebviewPanel('vibeall', 'VibeAll AI Assistant', vscode.ViewColumn.Two, {
+            enableScripts: true,
+            retainContextWhenHidden: true,
+            localResourceRoots: [
+                vscode.Uri.file(path.join(context.extensionPath, 'dist'))
+            ]
+        });
+        const webviewUri = currentPanel.webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'dist', 'webview.js')));
+        currentPanel.webview.html = getWebviewContent(webviewUri);
+        // Handle messages from webview
+        currentPanel.webview.onDidReceiveMessage(async (message) => {
+            await handleWebviewMessage(message);
+        }, undefined, context.subscriptions);
+        currentPanel.onDidDispose(() => {
+            currentPanel = undefined;
+        }, null, context.subscriptions);
+    };
+    async function handleWebviewMessage(message) {
+        const { type, payload } = message;
+        try {
+            switch (type) {
+                case 'getSettings':
+                    sendMessage({
+                        type: 'settings',
+                        payload: storageManager.getSettings()
+                    });
+                    break;
+                case 'updateSettings':
+                    await storageManager.updateSettings(payload);
+                    log('info', 'Settings updated');
+                    break;
+                case 'getChatHistory':
+                    sendMessage({
+                        type: 'chatHistory',
+                        payload: storageManager.getChatHistory()
+                    });
+                    break;
+                case 'clearChat':
+                    await storageManager.clearChatHistory();
+                    sendMessage({ type: 'chatCleared' });
+                    log('info', 'Chat history cleared');
+                    break;
+                case 'getLogs':
+                    sendMessage({
+                        type: 'logs',
+                        payload: logs
+                    });
+                    break;
+                case 'clearLogs':
+                    logs = [];
+                    sendMessage({
+                        type: 'logs',
+                        payload: []
+                    });
+                    break;
+                case 'getUsageStats':
+                    sendMessage({
+                        type: 'usageStats',
+                        payload: storageManager.getUsageStats()
+                    });
+                    break;
+                case 'getAPIKeys': {
+                    const apiKeys = await storageManager.getAllAPIKeys();
+                    sendMessage({
+                        type: 'apiKeys',
+                        payload: apiKeys
+                    });
+                    break;
+                }
+                case 'storeAPIKey':
+                    try {
+                        const { provider, key } = payload;
+                        await storageManager.storeAPIKey(provider, key);
+                        modelClient.setAPIKey(provider, key);
+                        log('info', `API key stored for ${provider}`);
+                        sendMessage({
+                            type: 'apiKeyStored',
+                            payload: { provider }
+                        });
+                    }
+                    catch (error) {
+                        log('error', `Failed to store API key: ${error.message}`);
+                        sendMessage({
+                            type: 'apiKeyError',
+                            payload: { error: error.message }
+                        });
+                    }
+                    break;
+                case 'sendMessage':
+                    await handleAIMessage(payload);
+                    break;
+                case 'switchModel':
+                    log('info', `Switched model to ${payload.provider} / ${payload.modelId}`);
+                    break;
+                case 'applyCode':
+                    await applyCodeToFile(payload.code, payload.filePath);
+                    break;
+                case 'fileSystemAction':
+                    await handleFileSystemAction(payload);
+                    break;
+                default:
+                    console.log(`[VibeAll] Unknown message type: ${type}`);
+            }
+        }
+        catch (error) {
+            console.error(`[VibeAll] Error handling message:`, error);
+            log('error', `Error handling message ${type}`, error);
+            sendMessage({
+                type: 'error',
+                payload: { error: error.message }
+            });
+        }
+    }
+    async function handleAIMessage(payload) {
+        const { messages, provider, modelId } = payload;
+        sendMessage({ type: 'messageLoading' });
+        log('info', `Processing message with ${provider} (${modelId})`);
+        try {
+            // System Prompt with Tool Definitions
+            const systemPrompt = `You are VibeAll, an advanced AI coding assistant.
+You can perform file operations. To do so, output a single JSON block strictly in this format:
+\`\`\`json
+{
+  "tools": [
+    { "name": "createDirectory", "args": { "path": "project_name" } },
+    { "name": "createFile", "args": { "path": "project_name/src/index.ts", "content": "..." } }
+  ]
+}
+\`\`\`
+IMPORTANT Rules:
+1. ALWAYS create a root folder for the project first (e.g., "my-app"). All subsequent files must be inside this folder.
+2. Use "createDirectory" explicitly for subdirectories (e.g., "my-app/src").
+3. Use "createInGen" ONLY for quick isolated temporary tests.
+4. For full projects, use "createFile" and "createDirectory".
+5. Output the JSON block at the end of your response.`;
+            // Add system prompt
+            let messagesWithContext = [...messages];
+            if (messagesWithContext.length > 0) {
+                messagesWithContext.unshift({ role: 'system', content: systemPrompt });
+            }
+            // Add retrieved context
+            if (context) {
+                const firstUserMsg = messagesWithContext.find(m => m.role === 'user');
+                if (firstUserMsg) {
+                    firstUserMsg.content = `[Context Files]:\n${context}\n\n${firstUserMsg.content}`;
+                }
+            }
+            // Ensure API key is loaded
+            if (!modelClient.hasClient(provider)) {
+                const apiKey = await storageManager.getAPIKey(provider);
+                if (apiKey) {
+                    modelClient.setAPIKey(provider, apiKey);
+                }
+                else {
+                    throw new Error(`No API key found for ${provider}. Please add one in settings.`);
+                }
+            }
+            // Send to AI
+            const response = await modelClient.sendMessage({ provider, modelId }, messagesWithContext);
+            // Parse and Execute Tools
+            const content = response.content;
+            // Try matching code blocks first
+            let toolJsonString = null;
+            const codeBlockRegex = /```(?:json)?\s*({[\s\S]*?"tools"[\s\S]*?})\s*```/;
+            const match = content.match(codeBlockRegex);
+            if (match) {
+                toolJsonString = match[1];
+            }
+            else {
+                // Fallback: try to find a raw JSON object containing "tools"
+                const rawJsonRegex = /({[\s\S]*?"tools"\s*:\s*\[[\s\S]*?}\s*])/;
+                const rawMatch = content.match(rawJsonRegex);
+                if (rawMatch) {
+                    toolJsonString = rawMatch[1];
+                }
+            }
+            if (toolJsonString) {
+                try {
+                    // unexpected token cleanup (sometimes models output trailing commas)
+                    // This is a simple parse try.
+                    const toolData = JSON.parse(toolJsonString);
+                    if (toolData.tools && Array.isArray(toolData.tools)) {
+                        log('info', `Found ${toolData.tools.length} tools to execute`);
+                        await executeTools(toolData.tools);
+                    }
+                }
+                catch (e) {
+                    log('error', 'Failed to parse tool JSON', e);
+                    console.error('Raw JSON string that failed:', toolJsonString);
+                }
+            }
+            else {
+                // Fallback: Parse standard code blocks as file creations
+                log('info', 'No tool JSON found, attempting to parse code blocks');
+                const extractedTools = parseCodeBlocksToTools(content);
+                if (extractedTools.length > 0) {
+                    log('info', `Found ${extractedTools.length} code blocks to turn into files`);
+                    await executeTools(extractedTools);
+                }
+                else {
+                    log('info', 'No executable content found in response');
+                }
+            }
+            // Save chat history
+            const updatedMessages = [
+                ...messages,
+                {
+                    id: Date.now().toString(),
+                    role: 'assistant',
+                    content: response.content,
+                    timestamp: Date.now(),
+                    model: modelId,
+                    tokens: response.usage?.total_tokens,
+                    reasoning_details: response.reasoning_details
+                }
+            ];
+            await storageManager.saveChatHistory(updatedMessages);
+            // Update usage stats
+            const stats = storageManager.getUsageStats();
+            if (!stats[provider]) {
+                stats[provider] = { requests: 0, tokens: 0, lastUsed: 0 };
+            }
+            stats[provider].requests += 1;
+            stats[provider].tokens += (response.usage?.total_tokens || 0);
+            stats[provider].lastUsed = Date.now();
+            await storageManager.updateUsageStats(stats);
+            sendMessage({
+                type: 'messageResponse',
+                payload: {
+                    content: response.content,
+                    model: modelId,
+                    tokens: response.usage?.total_tokens,
+                    usedProvider: provider,
+                    reasoning_details: response.reasoning_details
+                }
+            });
+            log('info', `AI Response received from ${provider}`, { tokens: response.usage?.total_tokens });
+        }
+        catch (error) {
+            log('error', `AI processing failed: ${error.message}`, error);
+            sendMessage({
+                type: 'messageError',
+                payload: { error: error.message }
+            });
+        }
+    }
+    async function applyCodeToFile(code, _filePath) {
+        try {
+            const editor = vscode.window.activeTextEditor;
+            if (!editor) {
+                vscode.window.showErrorMessage('No active editor');
+                return;
+            }
+            await editor.edit(editBuilder => {
+                const document = editor.document;
+                const lastLine = document.lineAt(document.lineCount - 1);
+                const range = new vscode.Range(new vscode.Position(0, 0), lastLine.range.end);
+                editBuilder.replace(range, code);
+            });
+            vscode.window.showInformationMessage('Code applied successfully!');
+            log('info', 'Code applied to file');
+        }
+        catch (error) {
+            vscode.window.showErrorMessage(`Failed to apply code: ${error.message}`);
+            log('error', 'Failed to apply code', error);
+        }
+    }
+    async function handleFileSystemAction(payload) {
+        const { action, path: filePath, content } = payload;
+        try {
+            let result;
+            switch (action) {
+                case 'createFile':
+                    result = await fileSystemManager.createFile(filePath, content);
+                    // Analyze code if it's a code file
+                    if (content && filePath.match(/\.(ts|js|tsx|jsx|py|java)$/)) {
+                        const { CodeAnalyzer } = await Promise.resolve().then(() => __importStar(__webpack_require__(14)));
+                        const ext = filePath.split('.').pop() || '';
+                        const langMap = { ts: 'typescript', js: 'javascript', tsx: 'typescript', jsx: 'javascript', py: 'python' };
+                        const language = langMap[ext] || ext;
+                        const analysis = CodeAnalyzer.analyzeCode(content, language);
+                        const securityIssues = CodeAnalyzer.detectSecurityIssues(content);
+                        const suggestions = CodeAnalyzer.generateSuggestions(content, language);
+                        if (analysis.issues.length > 0 || securityIssues.length > 0) {
+                            sendMessage({
+                                type: 'codeAnalysis',
+                                payload: {
+                                    file: filePath,
+                                    analysis,
+                                    securityIssues,
+                                    suggestions,
+                                    metrics: analysis.metrics
+                                }
+                            });
+                        }
+                    }
+                    log('info', `Created file: ${result}`);
+                    break;
+                case 'createDirectory':
+                    result = await fileSystemManager.createDirectory(filePath);
+                    log('info', `Created directory: ${result}`);
+                    break;
+                case 'readFile':
+                    result = await fileSystemManager.readFile(filePath);
+                    log('info', `Read file: ${filePath}`);
+                    break;
+                case 'listFiles':
+                    result = await fileSystemManager.listFiles(filePath);
+                    log('info', `Listed directory: ${filePath}`);
+                    break;
+                case 'createInGen':
+                    result = await fileSystemManager.createInGen(filePath, content);
+                    log('info', `Created in /gen: ${result}`);
+                    break;
+                default:
+                    throw new Error(`Unknown file command: ${action}`);
+            }
+            sendMessage({
+                type: 'fileSystemResponse',
+                payload: { action, result, status: 'success' }
+            });
+        }
+        catch (error) {
+            log('error', `File system action failed: ${action}`, error);
+            sendMessage({
+                type: 'fileSystemResponse',
+                payload: { action, error: error.message, status: 'error' }
+            });
+        }
+    }
+    // Helper to execute tools with UI updates
+    async function executeTools(tools) {
+        sendMessage({
+            type: 'toolExecutionStart',
+            payload: {
+                tools: tools.map((t, i) => ({ ...t, id: i }))
+            }
+        });
+        for (let i = 0; i < tools.length; i++) {
+            const tool = tools[i];
+            sendMessage({
+                type: 'toolStatus',
+                payload: {
+                    id: i,
+                    status: 'running',
+                    tool: tool.name,
+                    path: tool.args.path || tool.args.filename
+                }
+            });
+            try {
+                await handleFileSystemAction({ action: tool.name, ...tool.args });
+                sendMessage({
+                    type: 'toolStatus',
+                    payload: { id: i, status: 'completed' }
+                });
+            }
+            catch (toolError) {
+                sendMessage({
+                    type: 'toolStatus',
+                    payload: { id: i, status: 'error' }
+                });
+                log('error', `Tool error: ${tool.name}`, toolError);
+            }
+        }
+    }
+    function parseCodeBlocksToTools(content) {
+        const tools = [];
+        // Regex to match code blocks: ```lang ... ```
+        const blockRegex = /```(\w+)?\n([\s\S]*?)```/g;
+        let match;
+        while ((match = blockRegex.exec(content)) !== null) {
+            const lang = match[1] || 'txt';
+            const code = match[2];
+            // Heuristic: Look inside the code (first few lines) for a comment like "// filename: src/file.ts"
+            // or look at the text immediately preceding the block
+            // 1. Check inside code
+            let filename = null;
+            const commentMatch = code.match(/^(?:\/\/|#|<!--)\s*(?:filename|file):\s*([^\s\n]+)/m);
+            if (commentMatch) {
+                filename = commentMatch[1];
+            }
+            // 2. Check preceding text (look back from match.index)
+            if (!filename) {
+                const precedingText = content.substring(Math.max(0, match.index - 100), match.index);
+                // Look for bold filename or explicit mention: "**index.html**" or "In `script.js`:"
+                const nameMatch = precedingText.match(/(?:`|\*\*)([\w-]+\.\w+)(?:`|\*\*)?/);
+                if (nameMatch) {
+                    filename = nameMatch[1];
+                }
+            }
+            // 3. Fallback based on language
+            if (!filename) {
+                const ext = lang === 'javascript' ? 'js' : lang === 'typescript' ? 'ts' : lang === 'python' ? 'py' : lang;
+                filename = `generated_file_${tools.length + 1}.${ext}`;
+            }
+            // Sanitize filename (remove quotes/paths if too complex, or just accept)
+            filename = filename.trim();
+            tools.push({
+                name: 'createFile',
+                args: {
+                    path: filename, // Best effort path
+                    content: code
+                }
+            });
+        }
+        return tools;
+    }
+    function sendMessage(message) {
+        if (currentPanel) {
+            currentPanel.webview.postMessage(message);
+        }
+    }
+    function getWebviewContent(webviewUri) {
+        return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VibeAll AI Assistant</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+        #root {
+            width: 100vw;
+            height: 100vh;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <script src="${webviewUri}"></script>
+</body>
+</html>`;
+    }
+    // Register commands
+    const openCommand = vscode.commands.registerCommand('vibeall.open', showWebview);
+    const settingsCommand = vscode.commands.registerCommand('vibeall.openSettings', () => {
+        showWebview();
+        setTimeout(() => {
+            sendMessage({ type: 'showSettings' });
+        }, 500);
+    });
+    context.subscriptions.push(openCommand, settingsCommand);
+    // Show webview on activation
+    showWebview();
+}
+function deactivate() {
+    console.log('VibeAll extension is now deactivated');
+}
+
+
+/***/ }),
+/* 1 */
+/***/ ((module) => {
+
+module.exports = require("vscode");
+
+/***/ }),
+/* 2 */
+/***/ ((module) => {
+
+module.exports = require("path");
+
+/***/ }),
+/* 3 */
+/***/ ((__unused_webpack_module, exports) => {
+
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.StorageManager = void 0;
+class StorageManager {
+    constructor(context) {
+        this.context = context;
+        this.secretStorage = context.secrets;
+    }
+    async storeAPIKey(provider, key) {
+        const storageKey = `vibeall.apikey.${provider.toLowerCase()}`;
+        await this.secretStorage.store(storageKey, key);
+        console.log(`[StorageManager] Stored API key for ${provider}`);
+    }
+    async getAPIKey(provider) {
+        const storageKey = `vibeall.apikey.${provider.toLowerCase()}`;
+        const key = await this.secretStorage.get(storageKey);
+        return key;
+    }
+    async getAllAPIKeys() {
+        const providers = ['groq', 'google', 'openai', 'cerebras', 'deepseek', 'sambanova', 'anthropic'];
+        const keys = [];
+        for (const provider of providers) {
+            const key = await this.getAPIKey(provider);
+            if (key) {
+                keys.push({ provider, key });
+            }
+        }
+        return keys;
+    }
+    async deleteAPIKey(provider) {
+        const storageKey = `vibeall.apikey.${provider.toLowerCase()}`;
+        await this.secretStorage.delete(storageKey);
+        console.log(`[StorageManager] Deleted API key for ${provider}`);
+    }
+    // Settings storage
+    getSettings() {
+        return this.context.globalState.get('vibeall.settings', {
+            autoRunCommands: false,
+            autoApplyEdits: false,
+            showMiniDashboard: true,
+            compactMode: false,
+            alwaysShowPlan: false,
+            planMode: false,
+            theme: {
+                primaryColor: '#FF5722',
+                accentColor: '#FF9800',
+                mode: 'dark'
+            }
+        });
+    }
+    async updateSettings(settings) {
+        await this.context.globalState.update('vibeall.settings', settings);
+        console.log('[StorageManager] Settings updated');
+    }
+    // Chat history storage
+    getChatHistory() {
+        return this.context.globalState.get('vibeall.chatHistory', []);
+    }
+    async saveChatHistory(messages) {
+        await this.context.globalState.update('vibeall.chatHistory', messages);
+    }
+    async clearChatHistory() {
+        await this.context.globalState.update('vibeall.chatHistory', []);
+        console.log('[StorageManager] Chat history cleared');
+    }
+    // Usage stats storage
+    getUsageStats() {
+        return this.context.globalState.get('vibeall.usageStats', {});
+    }
+    async updateUsageStats(stats) {
+        await this.context.globalState.update('vibeall.usageStats', stats);
+    }
+}
+exports.StorageManager = StorageManager;
+
+
+/***/ }),
+/* 4 */
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ContextManager = void 0;
+const vscode = __importStar(__webpack_require__(1));
+class ContextManager {
+    async getActiveFileContext() {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+            return '';
+        }
+        const document = editor.document;
+        const selection = editor.selection;
+        let context = `File: ${document.fileName}\n`;
+        context += `Language: ${document.languageId}\n\n`;
+        if (!selection.isEmpty) {
+            context += `Selected code:\n\`\`\`${document.languageId}\n`;
+            context += document.getText(selection);
+            context += '\n```\n';
+        }
+        else {
+            context += `Full file content:\n\`\`\`${document.languageId}\n`;
+            context += document.getText();
+            context += '\n```\n';
+        }
+        return context;
+    }
+    async getWorkspaceContext() {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            return '';
+        }
+        let context = 'Workspace Information:\n';
+        context += `Root: ${workspaceFolders[0].uri.fsPath}\n`;
+        // Get package.json if it exists
+        try {
+            const packageJsonUri = vscode.Uri.joinPath(workspaceFolders[0].uri, 'package.json');
+            const packageJsonContent = await vscode.workspace.fs.readFile(packageJsonUri);
+            const packageJson = JSON.parse(packageJsonContent.toString());
+            context += '\nProject Dependencies:\n';
+            if (packageJson.dependencies) {
+                context += 'Dependencies: ' + Object.keys(packageJson.dependencies).join(', ') + '\n';
+            }
+            if (packageJson.devDependencies) {
+                context += 'DevDependencies: ' + Object.keys(packageJson.devDependencies).join(', ') + '\n';
+            }
+        }
+        catch (error) {
+            // package.json doesn't exist or can't be read
+        }
+        return context;
+    }
+    async getDiagnosticsContext() {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+            return '';
+        }
+        const diagnostics = vscode.languages.getDiagnostics(editor.document.uri);
+        if (diagnostics.length === 0) {
+            return '';
+        }
+        let context = '\nCurrent Errors/Warnings:\n';
+        diagnostics.forEach((diagnostic, index) => {
+            const severity = diagnostic.severity === vscode.DiagnosticSeverity.Error ? 'ERROR' : 'WARNING';
+            context += `${index + 1}. [${severity}] Line ${diagnostic.range.start.line + 1}: ${diagnostic.message}\n`;
+        });
+        return context;
+    }
+    async getFullContext() {
+        const fileContext = await this.getActiveFileContext();
+        const workspaceContext = await this.getWorkspaceContext();
+        const diagnosticsContext = await this.getDiagnosticsContext();
+        return `${workspaceContext}\n${fileContext}\n${diagnosticsContext}`;
+    }
+}
+exports.ContextManager = ContextManager;
+
+
+/***/ }),
+/* 5 */
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.FileSystemManager = void 0;
+const vscode = __importStar(__webpack_require__(1));
+const fs = __importStar(__webpack_require__(6));
+const path = __importStar(__webpack_require__(2));
+class FileSystemManager {
+    constructor() {
+        this.workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
+        this.sandboxRoot = this.workspaceRoot ? path.join(this.workspaceRoot, 'gen') : '';
+    }
+    getAbsolutePath(relativePath) {
+        if (!this.workspaceRoot) {
+            throw new Error('No workspace open');
+        }
+        // If it already looks absolute and starts with workspace root, keep it. 
+        // Otherwise join with workspace root.
+        if (path.isAbsolute(relativePath)) {
+            if (!relativePath.startsWith(this.workspaceRoot)) {
+                // For security/safety, strictly simpler to just require relative paths or paths inside workspace
+                // But for now, let's assume valid inputs or re-root them.
+                return relativePath;
+            }
+            return relativePath;
+        }
+        return path.join(this.workspaceRoot, relativePath);
+    }
+    ensureSandbox(filePath) {
+        if (!filePath.startsWith(this.sandboxRoot)) {
+            // If strictly enforcing sandbox. 
+            // The user wants a 'gen' folder for testing, but also 'update code' for general work.
+            // We 'll use a flag or method distinction later. For now, assume we can write anywhere if allowed.
+        }
+    }
+    async createFile(filePath, content) {
+        const fullPath = this.getAbsolutePath(filePath);
+        await this.ensureDirectoryExists(path.dirname(fullPath));
+        await fs.promises.writeFile(fullPath, content, 'utf8');
+        return fullPath;
+    }
+    async createDirectory(dirPath) {
+        const fullPath = this.getAbsolutePath(dirPath);
+        await fs.promises.mkdir(fullPath, { recursive: true });
+        return fullPath;
+    }
+    async readFile(filePath) {
+        const fullPath = this.getAbsolutePath(filePath);
+        return await fs.promises.readFile(fullPath, 'utf8');
+    }
+    async listFiles(dirPath) {
+        const fullPath = this.getAbsolutePath(dirPath);
+        const entries = await fs.promises.readdir(fullPath, { withFileTypes: true });
+        return entries.map(entry => {
+            return path.join(dirPath, entry.name);
+        });
+    }
+    async deleteFile(filePath) {
+        const fullPath = this.getAbsolutePath(filePath);
+        await fs.promises.unlink(fullPath);
+    }
+    async ensureDirectoryExists(dirPath) {
+        try {
+            await fs.promises.access(dirPath);
+        }
+        catch {
+            await fs.promises.mkdir(dirPath, { recursive: true });
+        }
+    }
+    // Helper for the 'gen' folder requirement
+    async createInGen(filename, content) {
+        if (!this.workspaceRoot)
+            throw new Error('No workspace');
+        const genPath = path.join(this.workspaceRoot, 'gen', filename);
+        await this.createFile(genPath, content);
+        return genPath;
+    }
+}
+exports.FileSystemManager = FileSystemManager;
+
+
+/***/ }),
+/* 6 */
+/***/ ((module) => {
+
+module.exports = require("fs");
+
+/***/ }),
+/* 7 */
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ModelClient = void 0;
+const GroqClient_1 = __webpack_require__(8);
+const GoogleClient_1 = __webpack_require__(10);
+const OpenAIClient_1 = __webpack_require__(11);
+const AnthropicClient_1 = __webpack_require__(12);
+const BytezClient_1 = __webpack_require__(13);
+class ModelClient {
+    constructor() {
+        this.clients = new Map();
+        // Clients will be initialized when API keys are provided
+    }
+    setAPIKey(provider, apiKey) {
+        const normalizedProvider = provider.toLowerCase();
+        switch (normalizedProvider) {
+            case 'groq':
+                this.clients.set('groq', new GroqClient_1.GroqClient(apiKey));
+                break;
+            case 'google':
+                this.clients.set('google', new GoogleClient_1.GoogleClient(apiKey));
+                break;
+            case 'anthropic':
+                this.clients.set('anthropic', new AnthropicClient_1.AnthropicClient(apiKey));
+                break;
+            case 'openai':
+            case 'cerebras':
+            case 'deepseek':
+            case 'sambanova':
+            case 'xai':
+            case 'novita':
+            case 'aimlapi':
+            case 'openrouter':
+                this.clients.set(normalizedProvider, new OpenAIClient_1.OpenAIClient(apiKey, normalizedProvider));
+                break;
+            case 'bytez':
+                this.clients.set('bytez', new BytezClient_1.BytezClient(apiKey));
+                break;
+        }
+    }
+    async sendMessage(config, messages) {
+        const { provider, modelId, apiKey } = config;
+        // Set API key if provided
+        if (apiKey) {
+            this.setAPIKey(provider, apiKey);
+        }
+        const client = this.clients.get(provider.toLowerCase());
+        if (!client) {
+            throw new Error(`No API key configured for provider: ${provider}`);
+        }
+        return await client.sendMessage(modelId, messages);
+    }
+    hasClient(provider) {
+        return this.clients.has(provider.toLowerCase());
+    }
+    getAvailableProviders() {
+        return Array.from(this.clients.keys());
+    }
+}
+exports.ModelClient = ModelClient;
+
+
+/***/ }),
+/* 8 */
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.GroqClient = void 0;
+const BaseAPIClient_1 = __webpack_require__(9);
+class GroqClient extends BaseAPIClient_1.BaseAPIClient {
+    constructor(apiKey) {
+        super(apiKey, 'https://api.groq.com/openai/v1');
+    }
+    async sendMessage(modelId, messages) {
+        const response = await this.makeRequest('/chat/completions', {
+            model: modelId,
+            messages,
+            temperature: 0.7,
+            max_tokens: 8192
+        });
+        const data = await response.json();
+        return {
+            content: data.choices[0].message.content,
+            done: true,
+            model: data.model,
+            tokens: data.usage?.total_tokens
+        };
+    }
+}
+exports.GroqClient = GroqClient;
+
+
+/***/ }),
+/* 9 */
+/***/ ((__unused_webpack_module, exports) => {
+
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.BaseAPIClient = void 0;
+class BaseAPIClient {
+    constructor(apiKey, baseURL) {
+        this.apiKey = apiKey;
+        this.baseURL = baseURL;
+    }
+    async makeRequest(endpoint, body, options) {
+        const response = await fetch(`${this.baseURL}${endpoint}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${this.apiKey}`,
+                ...options?.headers
+            },
+            body: JSON.stringify(body),
+            ...options
+        });
+        if (!response.ok) {
+            throw new Error(`API request failed: ${response.statusText}`);
+        }
+        return response;
+    }
+}
+exports.BaseAPIClient = BaseAPIClient;
+
+
+/***/ }),
+/* 10 */
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.GoogleClient = void 0;
+const BaseAPIClient_1 = __webpack_require__(9);
+class GoogleClient extends BaseAPIClient_1.BaseAPIClient {
+    constructor(apiKey) {
+        super(apiKey, 'https://generativelanguage.googleapis.com/v1beta');
+    }
+    async sendMessage(modelId, messages) {
+        // Convert messages to Gemini format
+        const contents = messages.map(msg => ({
+            role: msg.role === 'assistant' ? 'model' : 'user',
+            parts: [{ text: msg.content }]
+        }));
+        const response = await fetch(`${this.baseURL}/models/${modelId}:generateContent?key=${this.apiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contents })
+        });
+        if (!response.ok) {
+            throw new Error(`Gemini API error: ${response.statusText}`);
+        }
+        const data = await response.json();
+        return {
+            content: data.candidates[0].content.parts[0].text,
+            done: true,
+            model: modelId,
+            tokens: data.usageMetadata?.totalTokenCount
+        };
+    }
+}
+exports.GoogleClient = GoogleClient;
+
+
+/***/ }),
+/* 11 */
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.OpenAIClient = void 0;
+const BaseAPIClient_1 = __webpack_require__(9);
+class OpenAIClient extends BaseAPIClient_1.BaseAPIClient {
+    constructor(apiKey, provider = 'openai') {
+        const baseURLs = {
+            'openai': 'https://api.openai.com/v1',
+            'cerebras': 'https://api.cerebras.ai/v1',
+            'deepseek': 'https://api.deepseek.com/v1',
+            'sambanova': 'https://api.sambanova.ai/v1',
+            'xai': 'https://api.x.ai/v1',
+            'novita': 'https://api.novita.ai/openai',
+            'aimlapi': 'https://api.aimlapi.com/v1',
+            'openrouter': 'https://openrouter.ai/api/v1'
+        };
+        super(apiKey, baseURLs[provider] || baseURLs['openai']);
+        this.provider = provider;
+    }
+    async sendMessage(modelId, messages) {
+        const payload = {
+            model: modelId,
+            messages,
+            temperature: 0.7,
+            max_tokens: modelId === 'kat-coder' ? 1000 : 4096
+        };
+        // Enable reasoning for OpenRouter thinking models
+        if (this.provider === 'openrouter' && (modelId.includes('think') || modelId.includes('reason'))) {
+            payload.reasoning = { enabled: true };
+        }
+        const response = await this.makeRequest('/chat/completions', payload);
+        const data = await response.json();
+        return {
+            content: data.choices[0].message.content,
+            done: true,
+            model: data.model,
+            tokens: data.usage?.total_tokens,
+            reasoning_details: data.choices[0].message.reasoning_details
+        };
+    }
+}
+exports.OpenAIClient = OpenAIClient;
+
+
+/***/ }),
+/* 12 */
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.AnthropicClient = void 0;
+const BaseAPIClient_1 = __webpack_require__(9);
+class AnthropicClient extends BaseAPIClient_1.BaseAPIClient {
+    constructor(apiKey) {
+        super(apiKey, 'https://api.anthropic.com/v1');
+    }
+    async sendMessage(modelId, messages) {
+        // Extract system message if present (Anthropic requires it top-level)
+        let systemPrompt = '';
+        const anthropicMessages = messages.filter(msg => {
+            if (msg.role === 'system') {
+                systemPrompt += msg.content + '\n';
+                return false;
+            }
+            return true;
+        });
+        const body = {
+            model: modelId,
+            messages: anthropicMessages,
+            max_tokens: 8192,
+            system: systemPrompt.trim() || undefined
+        };
+        const response = await fetch(`${this.baseURL}/messages`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': this.apiKey, // Anthropic uses x-api-key
+                'anthropic-version': '2023-06-01'
+            },
+            body: JSON.stringify(body)
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Anthropic API error: ${response.status} - ${errorText}`);
+        }
+        const data = await response.json();
+        return {
+            content: data.content[0].text,
+            done: true,
+            model: data.model,
+            tokens: data.usage?.output_tokens
+        };
+    }
+}
+exports.AnthropicClient = AnthropicClient;
+
+
+/***/ }),
+/* 13 */
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.BytezClient = void 0;
+const BaseAPIClient_1 = __webpack_require__(9);
+class BytezClient extends BaseAPIClient_1.BaseAPIClient {
+    constructor(apiKey) {
+        super(apiKey, 'https://api.bytez.com/models/v2');
+    }
+    async sendMessage(modelId, messages) {
+        // Determine input format based on model type or just pass messages for LLMs
+        // For non-chat models (like stable-diffusion), we might want to extract the last prompt.
+        // But for now, let's implement the chat flow primarily.
+        let input = messages;
+        const isEmbedding = modelId.includes('sentence-transformers') ||
+            modelId.includes('bge') ||
+            modelId.includes('nomic') ||
+            modelId.includes('clip') ||
+            modelId.includes('siglip');
+        const isMedia = modelId.includes('stable') ||
+            modelId.includes('whisper') ||
+            modelId.includes('bark');
+        // Simple heuristic: if modelId implies image generation or embedding, use the last user message text
+        if (isEmbedding || isMedia) {
+            const lastMsg = messages[messages.length - 1];
+            input = lastMsg ? lastMsg.content : '';
+        }
+        const requestBody = { input };
+        // Only add params for models that support it (LLMs)
+        // Whisper/Bark/Embeddings don't use 'max_tokens' in the same way or error out
+        if (!isEmbedding && !modelId.includes('whisper') && !modelId.includes('bark')) {
+            requestBody.params = {
+                max_tokens: 1024,
+                temperature: 0.7
+            };
+        }
+        const response = await this.makeRequest(`/${modelId}`, requestBody);
+        const data = await response.json();
+        const output = data.output;
+        // Handle output format which can vary
+        let content = '';
+        if (typeof output === 'string') {
+            content = output;
+        }
+        else if (Array.isArray(output) && output[0] && output[0].content) {
+            // Chat output: [{ role: 'assistant', content: '...' }]
+            content = output[0].content;
+        }
+        else {
+            content = JSON.stringify(output);
+        }
+        return {
+            content: content,
+            done: true,
+            model: modelId,
+            tokens: 0 // Usage not strictly returned in standard wrapper
+        };
+    }
+    // Override makeRequest to custom format headers slightly different if needed
+    // Client.ts says: Authorization: Key ${apiKey}
+    async makeRequest(endpoint, body) {
+        const url = `${this.baseURL}${endpoint}`;
+        const headers = {
+            'Content-Type': 'application/json',
+            'Authorization': `Key ${this.apiKey}`
+        };
+        const response = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(body)
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`API Request Failed: ${response.status} ${response.statusText} - ${errorText}`);
+        }
+        return response;
+    }
+}
+exports.BytezClient = BytezClient;
+
+
+/***/ }),
+/* 14 */
+/***/ ((__unused_webpack_module, exports) => {
+
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.CodeAnalyzer = void 0;
+class CodeAnalyzer {
+    /**
+     * Analyze code for common issues and patterns
+     */
+    static analyzeCode(code, language) {
+        const issues = [];
+        const metrics = {
+            lines: 0,
+            complexity: 0,
+            maintainability: 100
+        };
+        const lines = code.split('\n');
+        metrics.lines = lines.length;
+        // Basic complexity analysis
+        let complexity = 1;
+        const complexityPatterns = [
+            /if\s*\(/g,
+            /else\s+if\s*\(/g,
+            /for\s*\(/g,
+            /while\s*\(/g,
+            /case\s+/g,
+            /catch\s*\(/g,
+            /\&\&/g,
+            /\|\|/g
+        ];
+        complexityPatterns.forEach(pattern => {
+            const matches = code.match(pattern);
+            if (matches) {
+                complexity += matches.length;
+            }
+        });
+        metrics.complexity = complexity;
+        metrics.maintainability = Math.max(0, 100 - (complexity * 2));
+        // Check for common issues
+        this.checkCommonIssues(code, language, issues);
+        return { issues, metrics };
+    }
+    static checkCommonIssues(code, language, issues) {
+        // Check for console.log (should use proper logging)
+        if (language === 'javascript' || language === 'typescript') {
+            const consoleMatches = code.match(/console\.(log|warn|error)/g);
+            if (consoleMatches && consoleMatches.length > 3) {
+                issues.push({
+                    severity: 'warning',
+                    message: `Found ${consoleMatches.length} console statements. Consider using a proper logging library.`,
+                    line: 0
+                });
+            }
+            // Check for var usage
+            const varMatches = code.match(/\bvar\s+/g);
+            if (varMatches) {
+                issues.push({
+                    severity: 'warning',
+                    message: 'Use const or let instead of var',
+                    line: 0
+                });
+            }
+            // Check for == instead of ===
+            const looseEqualityMatches = code.match(/[^=!]==[^=]/g);
+            if (looseEqualityMatches) {
+                issues.push({
+                    severity: 'warning',
+                    message: 'Use === instead of == for equality checks',
+                    line: 0
+                });
+            }
+        }
+        // Check for TODO comments
+        const todoMatches = code.match(/\/\/\s*TODO|\/\*\s*TODO|\#\s*TODO/gi);
+        if (todoMatches) {
+            issues.push({
+                severity: 'info',
+                message: `Found ${todoMatches.length} TODO comment(s)`,
+                line: 0
+            });
+        }
+        // Check for long lines
+        const lines = code.split('\n');
+        const longLines = lines.filter(line => line.length > 120);
+        if (longLines.length > 0) {
+            issues.push({
+                severity: 'info',
+                message: `${longLines.length} line(s) exceed 120 characters`,
+                line: 0
+            });
+        }
+    }
+    /**
+     * Generate suggestions for code improvement
+     */
+    static generateSuggestions(code, language) {
+        const suggestions = [];
+        // Check for missing error handling
+        if (language === 'javascript' || language === 'typescript') {
+            if (code.includes('async') && !code.includes('try')) {
+                suggestions.push('Add try-catch blocks for async functions');
+            }
+            if (code.includes('fetch') && !code.includes('catch')) {
+                suggestions.push('Add error handling for fetch requests');
+            }
+            // Check for missing JSDoc
+            const functionMatches = code.match(/function\s+\w+|const\s+\w+\s*=\s*\(/g);
+            if (functionMatches && !code.includes('/**')) {
+                suggestions.push('Add JSDoc comments to document functions');
+            }
+        }
+        // Check for code organization
+        if (code.length > 500 && !code.includes('class') && !code.includes('function')) {
+            suggestions.push('Consider breaking code into smaller functions or classes');
+        }
+        return suggestions;
+    }
+    /**
+     * Detect potential security issues
+     */
+    static detectSecurityIssues(code) {
+        const issues = [];
+        // Check for eval usage
+        if (code.includes('eval(')) {
+            issues.push({
+                severity: 'critical',
+                message: 'Avoid using eval() - it can execute arbitrary code',
+                type: 'code-injection'
+            });
+        }
+        // Check for innerHTML usage
+        if (code.includes('innerHTML')) {
+            issues.push({
+                severity: 'high',
+                message: 'Using innerHTML can lead to XSS vulnerabilities. Consider using textContent or sanitization.',
+                type: 'xss'
+            });
+        }
+        // Check for hardcoded credentials
+        const credentialPatterns = [
+            /password\s*=\s*["'][^"']+["']/i,
+            /api[_-]?key\s*=\s*["'][^"']+["']/i,
+            /secret\s*=\s*["'][^"']+["']/i,
+            /token\s*=\s*["'][^"']+["']/i
+        ];
+        credentialPatterns.forEach(pattern => {
+            if (pattern.test(code)) {
+                issues.push({
+                    severity: 'critical',
+                    message: 'Hardcoded credentials detected. Use environment variables instead.',
+                    type: 'hardcoded-secrets'
+                });
+            }
+        });
+        return issues;
+    }
+}
+exports.CodeAnalyzer = CodeAnalyzer;
+
+
+/***/ })
+/******/ 	]);
+/************************************************************************/
+/******/ 	// The module cache
+/******/ 	var __webpack_module_cache__ = {};
+/******/ 	
+/******/ 	// The require function
+/******/ 	function __webpack_require__(moduleId) {
+/******/ 		// Check if module is in cache
+/******/ 		var cachedModule = __webpack_module_cache__[moduleId];
+/******/ 		if (cachedModule !== undefined) {
+/******/ 			return cachedModule.exports;
+/******/ 		}
+/******/ 		// Create a new module (and put it into the cache)
+/******/ 		var module = __webpack_module_cache__[moduleId] = {
+/******/ 			// no module.id needed
+/******/ 			// no module.loaded needed
+/******/ 			exports: {}
+/******/ 		};
+/******/ 	
+/******/ 		// Execute the module function
+/******/ 		__webpack_modules__[moduleId].call(module.exports, module, module.exports, __webpack_require__);
+/******/ 	
+/******/ 		// Return the exports of the module
+/******/ 		return module.exports;
+/******/ 	}
+/******/ 	
+/************************************************************************/
+/******/ 	
+/******/ 	// startup
+/******/ 	// Load entry module and return exports
+/******/ 	// This entry module is referenced by other modules so it can't be inlined
+/******/ 	var __webpack_exports__ = __webpack_require__(0);
+/******/ 	var __webpack_export_target__ = exports;
+/******/ 	for(var __webpack_i__ in __webpack_exports__) __webpack_export_target__[__webpack_i__] = __webpack_exports__[__webpack_i__];
+/******/ 	if(__webpack_exports__.__esModule) Object.defineProperty(__webpack_export_target__, "__esModule", { value: true });
+/******/ 	
+/******/ })()
+;
+//# sourceMappingURL=extension.js.map

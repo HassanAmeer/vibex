@@ -415,6 +415,32 @@ IMPORTANT Rules:
             switch (action) {
                 case 'createFile':
                     result = await fileSystemManager.createFile(filePath, content);
+
+                    // Analyze code if it's a code file
+                    if (content && filePath.match(/\.(ts|js|tsx|jsx|py|java)$/)) {
+                        const { CodeAnalyzer } = await import('./utils/CodeAnalyzer');
+                        const ext = filePath.split('.').pop() || '';
+                        const langMap: any = { ts: 'typescript', js: 'javascript', tsx: 'typescript', jsx: 'javascript', py: 'python' };
+                        const language = langMap[ext] || ext;
+
+                        const analysis = CodeAnalyzer.analyzeCode(content, language);
+                        const securityIssues = CodeAnalyzer.detectSecurityIssues(content);
+                        const suggestions = CodeAnalyzer.generateSuggestions(content, language);
+
+                        if (analysis.issues.length > 0 || securityIssues.length > 0) {
+                            sendMessage({
+                                type: 'codeAnalysis',
+                                payload: {
+                                    file: filePath,
+                                    analysis,
+                                    securityIssues,
+                                    suggestions,
+                                    metrics: analysis.metrics
+                                }
+                            });
+                        }
+                    }
+
                     log('info', `Created file: ${result}`);
                     break;
                 case 'createDirectory':
