@@ -4,6 +4,9 @@ import { StorageManager } from './managers/StorageManager';
 import { ContextManager } from './managers/ContextManager';
 import { FileSystemManager } from './managers/FileSystemManager';
 import { ModelClient } from './api/ModelClient';
+import { CodebaseIndexer } from './indexing/CodebaseIndexer';
+import { AIInlineCompletionProvider } from './autocomplete/InlineCompletionProvider';
+import { ChatEnhancer } from './chat/ChatEnhancer';
 
 interface LogEntry {
     id: string;
@@ -72,6 +75,52 @@ export function activate(context: vscode.ExtensionContext) {
             log('error', 'Failed to load API keys', error);
         }
     }
+
+    // Initialize new features
+    let indexer: CodebaseIndexer | undefined;
+    let completionProvider: AIInlineCompletionProvider | undefined;
+    const chatEnhancer = new ChatEnhancer(modelClient);
+
+    // Initialize codebase indexer
+    async function initializeIndexer() {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            log('warning', 'No workspace folder found, skipping indexing');
+            return;
+        }
+
+        try {
+            indexer = new CodebaseIndexer();
+
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: 'Indexing codebase...',
+                cancellable: false
+            }, async (progress) => {
+                await indexer!.initialize(workspaceFolders[0].uri.fsPath);
+                const stats = indexer!.getStats();
+                log('info', `Codebase indexed: ${stats.files} files, ${stats.chunks} code chunks`);
+            });
+
+            // Register autocomplete provider
+            completionProvider = new AIInlineCompletionProvider(modelClient, indexer);
+            const completionDisposable = vscode.languages.registerInlineCompletionItemProvider(
+                { pattern: '**' },
+                completionProvider
+            );
+            context.subscriptions.push(completionDisposable);
+
+            log('info', 'Inline autocomplete enabled');
+        } catch (error: any) {
+            log('error', 'Failed to initialize indexer', error);
+            vscode.window.showErrorMessage(`Failed to index codebase: ${error.message}`);
+        }
+    }
+
+    // Auto-initialize on startup (after a short delay)
+    setTimeout(() => {
+        initializeIndexer();
+    }, 2000);
 
     // Create webview panel
     let currentPanel: vscode.WebviewPanel | undefined = undefined;
@@ -316,6 +365,39 @@ IMPORTANT Rules:
             let messagesWithContext = [...messages];
             if (messagesWithContext.length > 0) {
                 messagesWithContext.unshift({ role: 'system', content: systemPrompt });
+            }
+
+            // Enhance last user message with @-mentions and slash commands
+            const lastUserMsg = messagesWithContext.filter(m => m.role === 'user').pop();
+            if (lastUserMsg) {
+                try {
+                    const enhanced = await chatEnhancer.enhanceMessage(
+                        lastUserMsg.content,
+                        provider,
+                        modelId
+                    );
+
+                    if (enhanced.isSlashCommand) {
+                        // Slash command was executed, return response directly
+                        sendMessage({
+                            type: 'messageResponse',
+                            payload: {
+                                content: enhanced.enhancedMessage,
+                                model: modelId,
+                                usedProvider: provider
+                            }
+                        });
+                        log('info', `Slash command executed`);
+                        return;
+                    }
+
+                    // Update message with enhanced content (includes @-mentions context)
+                    lastUserMsg.content = enhanced.enhancedMessage;
+                    log('info', `Message enhanced with mentions/context`);
+                } catch (error: any) {
+                    log('warning', `Chat enhancement failed: ${error.message}`);
+                    // Continue with original message
+                }
             }
 
             // Add retrieved context
@@ -659,7 +741,30 @@ IMPORTANT Rules:
         }, 500);
     });
 
-    context.subscriptions.push(openCommand, settingsCommand);
+    // New commands
+    const indexCommand = vscode.commands.registerCommand('vibeall.indexCodebase', async () => {
+        await initializeIndexer();
+    });
+
+    const toggleAutocompleteCommand = vscode.commands.registerCommand('vibeall.toggleAutocomplete', () => {
+        if (completionProvider) {
+            const config = vscode.workspace.getConfiguration('vibeall');
+            const currentState = config.get('autocomplete.enabled', true);
+            const newState = !currentState;
+
+            config.update('autocomplete.enabled', newState, vscode.ConfigurationTarget.Global);
+            completionProvider.setEnabled(newState);
+
+            vscode.window.showInformationMessage(
+                `Autocomplete ${newState ? 'enabled' : 'disabled'}`
+            );
+            log('info', `Autocomplete ${newState ? 'enabled' : 'disabled'}`);
+        } else {
+            vscode.window.showWarningMessage('Autocomplete not initialized yet');
+        }
+    });
+
+    context.subscriptions.push(openCommand, settingsCommand, indexCommand, toggleAutocompleteCommand);
 
     // Show webview on activation
     showWebview();

@@ -1,9 +1,9 @@
 /******/ (() => { // webpackBootstrap
-/******/ 	"use strict";
 /******/ 	var __webpack_modules__ = ([
 /* 0 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
+"use strict";
 
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
@@ -47,6 +47,9 @@ const StorageManager_1 = __webpack_require__(3);
 const ContextManager_1 = __webpack_require__(4);
 const FileSystemManager_1 = __webpack_require__(5);
 const ModelClient_1 = __webpack_require__(7);
+const CodebaseIndexer_1 = __webpack_require__(14);
+const InlineCompletionProvider_1 = __webpack_require__(26);
+const ChatEnhancer_1 = __webpack_require__(27);
 function activate(context) {
     console.log('VibeAll extension is now active!');
     const storageManager = new StorageManager_1.StorageManager(context);
@@ -97,6 +100,43 @@ function activate(context) {
             log('error', 'Failed to load API keys', error);
         }
     }
+    // Initialize new features
+    let indexer;
+    let completionProvider;
+    const chatEnhancer = new ChatEnhancer_1.ChatEnhancer(modelClient);
+    // Initialize codebase indexer
+    async function initializeIndexer() {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            log('warning', 'No workspace folder found, skipping indexing');
+            return;
+        }
+        try {
+            indexer = new CodebaseIndexer_1.CodebaseIndexer();
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: 'Indexing codebase...',
+                cancellable: false
+            }, async (progress) => {
+                await indexer.initialize(workspaceFolders[0].uri.fsPath);
+                const stats = indexer.getStats();
+                log('info', `Codebase indexed: ${stats.files} files, ${stats.chunks} code chunks`);
+            });
+            // Register autocomplete provider
+            completionProvider = new InlineCompletionProvider_1.AIInlineCompletionProvider(modelClient, indexer);
+            const completionDisposable = vscode.languages.registerInlineCompletionItemProvider({ pattern: '**' }, completionProvider);
+            context.subscriptions.push(completionDisposable);
+            log('info', 'Inline autocomplete enabled');
+        }
+        catch (error) {
+            log('error', 'Failed to initialize indexer', error);
+            vscode.window.showErrorMessage(`Failed to index codebase: ${error.message}`);
+        }
+    }
+    // Auto-initialize on startup (after a short delay)
+    setTimeout(() => {
+        initializeIndexer();
+    }, 2000);
     // Create webview panel
     let currentPanel = undefined;
     const showWebview = () => {
@@ -298,6 +338,33 @@ IMPORTANT Rules:
             if (messagesWithContext.length > 0) {
                 messagesWithContext.unshift({ role: 'system', content: systemPrompt });
             }
+            // Enhance last user message with @-mentions and slash commands
+            const lastUserMsg = messagesWithContext.filter(m => m.role === 'user').pop();
+            if (lastUserMsg) {
+                try {
+                    const enhanced = await chatEnhancer.enhanceMessage(lastUserMsg.content, provider, modelId);
+                    if (enhanced.isSlashCommand) {
+                        // Slash command was executed, return response directly
+                        sendMessage({
+                            type: 'messageResponse',
+                            payload: {
+                                content: enhanced.enhancedMessage,
+                                model: modelId,
+                                usedProvider: provider
+                            }
+                        });
+                        log('info', `Slash command executed`);
+                        return;
+                    }
+                    // Update message with enhanced content (includes @-mentions context)
+                    lastUserMsg.content = enhanced.enhancedMessage;
+                    log('info', `Message enhanced with mentions/context`);
+                }
+                catch (error) {
+                    log('warning', `Chat enhancement failed: ${error.message}`);
+                    // Continue with original message
+                }
+            }
             // Add retrieved context
             if (context) {
                 const firstUserMsg = messagesWithContext.find(m => m.role === 'user');
@@ -434,7 +501,7 @@ IMPORTANT Rules:
                     result = await fileSystemManager.createFile(filePath, content);
                     // Analyze code if it's a code file
                     if (content && filePath.match(/\.(ts|js|tsx|jsx|py|java)$/)) {
-                        const { CodeAnalyzer } = await Promise.resolve().then(() => __importStar(__webpack_require__(14)));
+                        const { CodeAnalyzer } = await Promise.resolve().then(() => __importStar(__webpack_require__(28)));
                         const ext = filePath.split('.').pop() || '';
                         const langMap = { ts: 'typescript', js: 'javascript', tsx: 'typescript', jsx: 'javascript', py: 'python' };
                         const language = langMap[ext] || ext;
@@ -603,7 +670,25 @@ IMPORTANT Rules:
             sendMessage({ type: 'showSettings' });
         }, 500);
     });
-    context.subscriptions.push(openCommand, settingsCommand);
+    // New commands
+    const indexCommand = vscode.commands.registerCommand('vibeall.indexCodebase', async () => {
+        await initializeIndexer();
+    });
+    const toggleAutocompleteCommand = vscode.commands.registerCommand('vibeall.toggleAutocomplete', () => {
+        if (completionProvider) {
+            const config = vscode.workspace.getConfiguration('vibeall');
+            const currentState = config.get('autocomplete.enabled', true);
+            const newState = !currentState;
+            config.update('autocomplete.enabled', newState, vscode.ConfigurationTarget.Global);
+            completionProvider.setEnabled(newState);
+            vscode.window.showInformationMessage(`Autocomplete ${newState ? 'enabled' : 'disabled'}`);
+            log('info', `Autocomplete ${newState ? 'enabled' : 'disabled'}`);
+        }
+        else {
+            vscode.window.showWarningMessage('Autocomplete not initialized yet');
+        }
+    });
+    context.subscriptions.push(openCommand, settingsCommand, indexCommand, toggleAutocompleteCommand);
     // Show webview on activation
     showWebview();
 }
@@ -616,18 +701,21 @@ function deactivate() {
 /* 1 */
 /***/ ((module) => {
 
+"use strict";
 module.exports = require("vscode");
 
 /***/ }),
 /* 2 */
 /***/ ((module) => {
 
+"use strict";
 module.exports = require("path");
 
 /***/ }),
 /* 3 */
 /***/ ((__unused_webpack_module, exports) => {
 
+"use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.StorageManager = void 0;
@@ -711,6 +799,7 @@ exports.StorageManager = StorageManager;
 /* 4 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
+"use strict";
 
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
@@ -825,6 +914,7 @@ exports.ContextManager = ContextManager;
 /* 5 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
+"use strict";
 
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
@@ -942,12 +1032,14 @@ exports.FileSystemManager = FileSystemManager;
 /* 6 */
 /***/ ((module) => {
 
+"use strict";
 module.exports = require("fs");
 
 /***/ }),
 /* 7 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
+"use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.ModelClient = void 0;
@@ -1014,6 +1106,7 @@ exports.ModelClient = ModelClient;
 /* 8 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
+"use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.GroqClient = void 0;
@@ -1045,6 +1138,7 @@ exports.GroqClient = GroqClient;
 /* 9 */
 /***/ ((__unused_webpack_module, exports) => {
 
+"use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.BaseAPIClient = void 0;
@@ -1077,6 +1171,7 @@ exports.BaseAPIClient = BaseAPIClient;
 /* 10 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
+"use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.GoogleClient = void 0;
@@ -1115,6 +1210,7 @@ exports.GoogleClient = GoogleClient;
 /* 11 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
+"use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.OpenAIClient = void 0;
@@ -1163,6 +1259,7 @@ exports.OpenAIClient = OpenAIClient;
 /* 12 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
+"use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.AnthropicClient = void 0;
@@ -1216,6 +1313,7 @@ exports.AnthropicClient = AnthropicClient;
 /* 13 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
+"use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.BytezClient = void 0;
@@ -1298,8 +1396,1728 @@ exports.BytezClient = BytezClient;
 
 /***/ }),
 /* 14 */
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.CodebaseIndexer = void 0;
+const vscode = __importStar(__webpack_require__(1));
+const fs = __importStar(__webpack_require__(15));
+const tree_sitter_1 = __importDefault(__webpack_require__(16));
+const TypeScript = (__webpack_require__(21).typescript);
+const JavaScript = __webpack_require__(24);
+class CodebaseIndexer {
+    constructor() {
+        this.index = new Map();
+        this.watchers = [];
+        this.parser = new tree_sitter_1.default();
+    }
+    async initialize(workspacePath) {
+        console.log('🔍 Starting codebase indexing...');
+        // Find all code files
+        const files = await vscode.workspace.findFiles('**/*.{ts,tsx,js,jsx}', '**/node_modules/**');
+        let indexed = 0;
+        for (const file of files) {
+            await this.indexFile(file.fsPath);
+            indexed++;
+            if (indexed % 10 === 0) {
+                console.log(`Indexed ${indexed}/${files.length} files`);
+            }
+        }
+        // Setup file watchers
+        this.setupWatchers(workspacePath);
+        console.log(`✅ Indexing complete! ${indexed} files indexed.`);
+        vscode.window.showInformationMessage(`✅ Indexed ${indexed} files`);
+    }
+    async indexFile(filePath) {
+        try {
+            const content = await fs.readFile(filePath, 'utf8');
+            // Set language based on file extension
+            const language = filePath.match(/\.tsx?$/)
+                ? TypeScript
+                : JavaScript;
+            this.parser.setLanguage(language);
+            const tree = this.parser.parse(content);
+            // Extract code chunks
+            const chunks = this.extractChunks(tree, content, filePath);
+            this.index.set(filePath, chunks);
+        }
+        catch (error) {
+            console.error(`Failed to index ${filePath}:`, error);
+        }
+    }
+    extractChunks(tree, text, filePath) {
+        const chunks = [];
+        const cursor = tree.walk();
+        const visit = () => {
+            const node = cursor.currentNode;
+            // Extract functions, classes, methods
+            if (node.type === 'function_declaration' ||
+                node.type === 'class_declaration' ||
+                node.type === 'method_definition' ||
+                node.type === 'arrow_function' ||
+                node.type === 'function_expression') {
+                chunks.push({
+                    content: text.slice(node.startIndex, node.endIndex),
+                    filePath,
+                    type: node.type,
+                    startLine: node.startPosition.row,
+                    endLine: node.endPosition.row
+                });
+            }
+            if (cursor.gotoFirstChild()) {
+                do {
+                    visit();
+                } while (cursor.gotoNextSibling());
+                cursor.gotoParent();
+            }
+        };
+        visit();
+        return chunks;
+    }
+    search(query, limit = 5) {
+        const results = [];
+        const queryLower = query.toLowerCase();
+        for (const chunks of this.index.values()) {
+            for (const chunk of chunks) {
+                if (chunk.content.toLowerCase().includes(queryLower)) {
+                    results.push(chunk);
+                    if (results.length >= limit) {
+                        return results;
+                    }
+                }
+            }
+        }
+        return results;
+    }
+    setupWatchers(workspacePath) {
+        const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(workspacePath, '**/*.{ts,tsx,js,jsx}'));
+        watcher.onDidChange(async (uri) => {
+            console.log(`File changed: ${uri.fsPath}`);
+            await this.indexFile(uri.fsPath);
+        });
+        watcher.onDidCreate(async (uri) => {
+            console.log(`File created: ${uri.fsPath}`);
+            await this.indexFile(uri.fsPath);
+        });
+        watcher.onDidDelete((uri) => {
+            console.log(`File deleted: ${uri.fsPath}`);
+            this.index.delete(uri.fsPath);
+        });
+        this.watchers.push(watcher);
+    }
+    getStats() {
+        let totalChunks = 0;
+        for (const chunks of this.index.values()) {
+            totalChunks += chunks.length;
+        }
+        return {
+            files: this.index.size,
+            chunks: totalChunks
+        };
+    }
+    dispose() {
+        this.watchers.forEach(w => w.dispose());
+    }
+}
+exports.CodebaseIndexer = CodebaseIndexer;
+
+
+/***/ }),
+/* 15 */
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("fs/promises");
+
+/***/ }),
+/* 16 */
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+const binding = __webpack_require__(17)(__dirname);
+const {Query, Parser, NodeMethods, Tree, TreeCursor, LookaheadIterator} = binding;
+
+const util = __webpack_require__(20);
+
+/*
+ * Tree
+ */
+
+const {rootNode, rootNodeWithOffset, edit} = Tree.prototype;
+
+Object.defineProperty(Tree.prototype, 'rootNode', {
+  get() {
+    /*
+      Due to a race condition arising from Jest's worker pool, "this"
+      has no knowledge of the native extension if the extension has not
+      yet loaded when multiple Jest tests are being run simultaneously.
+      If the extension has correctly loaded, "this" should be an instance 
+      of the class whose prototype we are acting on (in this case, Tree).
+      Furthermore, the race condition sometimes results in the function in 
+      question being undefined even when the context is correct, so we also 
+      perform a null function check.
+    */
+    if (this instanceof Tree && rootNode) {
+      return unmarshalNode(rootNode.call(this), this);
+    }
+  },
+  // Jest worker pool may attempt to override property due to race condition,
+  // we don't want to error on this
+  configurable: true
+});
+
+Tree.prototype.rootNodeWithOffset = function(offset_bytes, offset_extent) {
+  return unmarshalNode(rootNodeWithOffset.call(this, offset_bytes, offset_extent.row, offset_extent.column), this);
+}
+
+Tree.prototype.edit = function(arg) {
+  if (this instanceof Tree && edit) {
+    edit.call(
+      this,
+      arg.startPosition.row, arg.startPosition.column,
+      arg.oldEndPosition.row, arg.oldEndPosition.column,
+      arg.newEndPosition.row, arg.newEndPosition.column,
+      arg.startIndex,
+      arg.oldEndIndex,
+      arg.newEndIndex
+    );
+  }
+};
+
+Tree.prototype.walk = function() {
+  return this.rootNode.walk()
+};
+
+/*
+ * Node
+ */
+
+class SyntaxNode {
+  constructor(tree) {
+    this.tree = tree;
+  }
+
+  [util.inspect.custom]() {
+    return this.constructor.name + ' {\n' +
+      '  type: ' + this.type + ',\n' +
+      '  startPosition: ' + pointToString(this.startPosition) + ',\n' +
+      '  endPosition: ' + pointToString(this.endPosition) + ',\n' +
+      '  childCount: ' + this.childCount + ',\n' +
+      '}'
+  }
+
+  get id() {
+    marshalNode(this);
+    return NodeMethods.id(this.tree);
+  }
+
+  get typeId() {
+    marshalNode(this);
+    return NodeMethods.typeId(this.tree);
+  }
+
+  get grammarId() {
+    marshalNode(this);
+    return NodeMethods.grammarId(this.tree);
+  }
+
+  get type() {
+    marshalNode(this);
+    return NodeMethods.type(this.tree);
+  }
+
+  get grammarType() {
+    marshalNode(this);
+    return NodeMethods.grammarType(this.tree);
+  }
+
+  get isExtra() {
+    marshalNode(this);
+    return NodeMethods.isExtra(this.tree);
+  }
+
+  get isNamed() {
+    marshalNode(this);
+    return NodeMethods.isNamed(this.tree);
+  }
+
+  get isMissing() {
+    marshalNode(this);
+    return NodeMethods.isMissing(this.tree);
+  }
+
+  get hasChanges() {
+    marshalNode(this);
+    return NodeMethods.hasChanges(this.tree);
+  }
+
+  get hasError() {
+    marshalNode(this);
+    return NodeMethods.hasError(this.tree);
+  }
+
+  get isError() {
+    marshalNode(this);
+    return NodeMethods.isError(this.tree);
+  }
+
+  get text() {
+    return this.tree.getText(this);
+  }
+
+  get startPosition() {
+    marshalNode(this);
+    NodeMethods.startPosition(this.tree);
+    return unmarshalPoint();
+  }
+
+  get endPosition() {
+    marshalNode(this);
+    NodeMethods.endPosition(this.tree);
+    return unmarshalPoint();
+  }
+
+  get startIndex() {
+    marshalNode(this);
+    return NodeMethods.startIndex(this.tree);
+  }
+
+  get endIndex() {
+    marshalNode(this);
+    return NodeMethods.endIndex(this.tree);
+  }
+
+  get parent() {
+    marshalNode(this);
+    return unmarshalNode(NodeMethods.parent(this.tree), this.tree);
+  }
+
+  get children() {
+    marshalNode(this);
+    return unmarshalNodes(NodeMethods.children(this.tree), this.tree);
+  }
+
+  get namedChildren() {
+    marshalNode(this);
+    return unmarshalNodes(NodeMethods.namedChildren(this.tree), this.tree);
+  }
+
+  get childCount() {
+    marshalNode(this);
+    return NodeMethods.childCount(this.tree);
+  }
+
+  get namedChildCount() {
+    marshalNode(this);
+    return NodeMethods.namedChildCount(this.tree);
+  }
+
+  get firstChild() {
+    marshalNode(this);
+    return unmarshalNode(NodeMethods.firstChild(this.tree), this.tree);
+  }
+
+  get firstNamedChild() {
+    marshalNode(this);
+    return unmarshalNode(NodeMethods.firstNamedChild(this.tree), this.tree);
+  }
+
+  get lastChild() {
+    marshalNode(this);
+    return unmarshalNode(NodeMethods.lastChild(this.tree), this.tree);
+  }
+
+  get lastNamedChild() {
+    marshalNode(this);
+    return unmarshalNode(NodeMethods.lastNamedChild(this.tree), this.tree);
+  }
+
+  get nextSibling() {
+    marshalNode(this);
+    return unmarshalNode(NodeMethods.nextSibling(this.tree), this.tree);
+  }
+
+  get nextNamedSibling() {
+    marshalNode(this);
+    return unmarshalNode(NodeMethods.nextNamedSibling(this.tree), this.tree);
+  }
+
+  get previousSibling() {
+    marshalNode(this);
+    return unmarshalNode(NodeMethods.previousSibling(this.tree), this.tree);
+  }
+
+  get previousNamedSibling() {
+    marshalNode(this);
+    return unmarshalNode(NodeMethods.previousNamedSibling(this.tree), this.tree);
+  }
+
+  get parseState() {
+    marshalNode(this);
+    return NodeMethods.parseState(this.tree);
+  }
+
+  get nextParseState() {
+    marshalNode(this);
+    return NodeMethods.nextParseState(this.tree);
+  }
+
+  get descendantCount() {
+    marshalNode(this);
+    return NodeMethods.descendantCount(this.tree);
+  }
+
+  toString() {
+    marshalNode(this);
+    return NodeMethods.toString(this.tree);
+  }
+
+  child(index) {
+    marshalNode(this);
+    return unmarshalNode(NodeMethods.child(this.tree, index), this.tree);
+  }
+
+  namedChild(index) {
+    marshalNode(this);
+    return unmarshalNode(NodeMethods.namedChild(this.tree, index), this.tree);
+  }
+
+  childForFieldName(fieldName) {
+    marshalNode(this);
+    return unmarshalNode(NodeMethods.childForFieldName(this.tree, fieldName), this.tree);
+  }
+
+  childForFieldId(fieldId) {
+    marshalNode(this);
+    return unmarshalNode(NodeMethods.childForFieldId(this.tree, fieldId), this.tree);
+  }
+
+  fieldNameForChild(childIndex) {
+    marshalNode(this);
+    return NodeMethods.fieldNameForChild(this.tree, childIndex);
+  }
+
+  childrenForFieldName(fieldName) {
+    marshalNode(this);
+    return unmarshalNodes(NodeMethods.childrenForFieldName(this.tree, fieldName), this.tree);
+  }
+
+  childrenForFieldId(fieldId) {
+    marshalNode(this);
+    return unmarshalNodes(NodeMethods.childrenForFieldId(this.tree, fieldId), this.tree);
+  }
+
+  firstChildForIndex(index) {
+    marshalNode(this);
+    return unmarshalNode(NodeMethods.firstChildForIndex(this.tree, index), this.tree);
+  }
+
+  firstNamedChildForIndex(index) {
+    marshalNode(this);
+    return unmarshalNode(NodeMethods.firstNamedChildForIndex(this.tree, index), this.tree);
+  }
+
+  namedDescendantForIndex(start, end) {
+    marshalNode(this);
+    if (end == null) end = start;
+    return unmarshalNode(NodeMethods.namedDescendantForIndex(this.tree, start, end), this.tree);
+  }
+
+  descendantForIndex(start, end) {
+    marshalNode(this);
+    if (end == null) end = start;
+    return unmarshalNode(NodeMethods.descendantForIndex(this.tree, start, end), this.tree);
+  }
+
+  descendantsOfType(types, start, end) {
+    marshalNode(this);
+    if (typeof types === 'string') types = [types]
+    return unmarshalNodes(NodeMethods.descendantsOfType(this.tree, types, start, end), this.tree);
+  }
+
+  namedDescendantForPosition(start, end) {
+    marshalNode(this);
+    if (end == null) end = start;
+    return unmarshalNode(NodeMethods.namedDescendantForPosition(this.tree, start, end), this.tree);
+  }
+
+  descendantForPosition(start, end) {
+    marshalNode(this);
+    if (end == null) end = start;
+    return unmarshalNode(NodeMethods.descendantForPosition(this.tree, start, end), this.tree);
+  }
+
+  closest(types) {
+    marshalNode(this);
+    if (typeof types === 'string') types = [types]
+    return unmarshalNode(NodeMethods.closest(this.tree, types), this.tree);
+  }
+
+  walk () {
+    marshalNode(this);
+    const cursor = NodeMethods.walk(this.tree);
+    cursor.tree = this.tree;
+    unmarshalNode(cursor.currentNode, this.tree);
+    return cursor;
+  }
+}
+
+/*
+ * Parser
+ */
+
+const {parse, setLanguage} = Parser.prototype;
+const languageSymbol = Symbol('parser.language');
+
+Parser.prototype.setLanguage = function(language) {
+  if (this instanceof Parser && setLanguage) {
+    setLanguage.call(this, language);
+  }
+  this[languageSymbol] = language;
+  if (!language.nodeSubclasses) {
+    initializeLanguageNodeClasses(language)
+  }
+  return this;
+};
+
+Parser.prototype.getLanguage = function(_language) {
+  return this[languageSymbol] || null;
+};
+
+Parser.prototype.parse = function(input, oldTree, {bufferSize, includedRanges}={}) {
+  let getText, treeInput = input
+  if (typeof input === 'string') {
+    const inputString = input;
+    input = (offset, _position) => inputString.slice(offset)
+    getText = getTextFromString
+  } else {
+    getText = getTextFromFunction
+  }
+  const tree = this instanceof Parser && parse
+    ? parse.call(
+      this,
+      input,
+      oldTree,
+      bufferSize,
+      includedRanges,
+    )
+    : undefined;
+
+  if (tree) {
+    tree.input = treeInput
+    tree.getText = getText
+    tree.language = this.getLanguage()
+  }
+  return tree
+};
+
+/*
+ * TreeCursor
+ */
+
+const {startPosition, endPosition, currentNode} = TreeCursor.prototype;
+
+Object.defineProperties(TreeCursor.prototype, {
+  currentNode: {
+    get() {
+      if (this instanceof TreeCursor && currentNode) {
+        return unmarshalNode(currentNode.call(this), this.tree);
+      }
+    },
+    configurable: true
+  },
+  startPosition: {
+    get() {
+      if (this instanceof TreeCursor && startPosition) {
+        startPosition.call(this);
+        return unmarshalPoint();
+      }
+    },
+    configurable: true
+  },
+  endPosition: {
+    get() {
+      if (this instanceof TreeCursor && endPosition) {
+        endPosition.call(this);
+        return unmarshalPoint();
+      }
+    },
+    configurable: true
+  },
+  nodeText: {
+    get() {
+      return this.tree.getText(this)
+    },
+    configurable: true
+  }
+});
+
+/*
+ * Query
+ */
+
+const {_matches, _captures} = Query.prototype;
+
+const PREDICATE_STEP_TYPE = {
+  DONE: 0,
+  CAPTURE: 1,
+  STRING: 2,
+}
+
+const ZERO_POINT = { row: 0, column: 0 };
+
+Query.prototype._init = function() {
+  /*
+   * Initialize predicate functions
+   * format: [type1, value1, type2, value2, ...]
+   */
+  const predicateDescriptions = this._getPredicates();
+  const patternCount = predicateDescriptions.length;
+
+  const setProperties = new Array(patternCount);
+  const assertedProperties = new Array(patternCount);
+  const refutedProperties = new Array(patternCount);
+  const predicates = new Array(patternCount);
+
+  const FIRST  = 0
+  const SECOND = 2
+  const THIRD  = 4
+
+  for (let i = 0; i < predicateDescriptions.length; i++) {
+    predicates[i] = [];
+
+    for (let j = 0; j < predicateDescriptions[i].length; j++) {
+
+      const steps = predicateDescriptions[i][j];
+      const stepsLength = steps.length / 2;
+
+      if (steps[FIRST] !== PREDICATE_STEP_TYPE.STRING) {
+        throw new Error('Predicates must begin with a literal value');
+      }
+
+      const operator = steps[FIRST + 1];
+
+      let isPositive = true;
+      let matchAll = true;
+      let captureName;
+      switch (operator) {
+        case 'any-not-eq?':
+        case 'not-eq?':
+          isPositive = false;
+        case 'any-eq?':
+        case 'eq?':
+          if (stepsLength !== 3) throw new Error(
+            `Wrong number of arguments to \`#eq?\` predicate. Expected 2, got ${stepsLength - 1}`
+          );
+          if (steps[SECOND] !== PREDICATE_STEP_TYPE.CAPTURE) throw new Error(
+            `First argument of \`#eq?\` predicate must be a capture. Got "${steps[SECOND + 1]}"`
+          );
+          matchAll = !operator.startsWith('any-');
+          if (steps[THIRD] === PREDICATE_STEP_TYPE.CAPTURE) {
+            const captureName1 = steps[SECOND + 1];
+            const captureName2 = steps[THIRD + 1];
+            predicates[i].push(function (captures) {
+              let nodes_1 = [];
+              let nodes_2 = [];
+              for (const c of captures) {
+                if (c.name === captureName1) nodes_1.push(c.node);
+                if (c.name === captureName2) nodes_2.push(c.node);
+              }
+              let compare = (n1, n2, positive) => {
+                return positive ?
+                  n1.text === n2.text :
+                  n1.text !== n2.text;
+              };
+              return matchAll
+                ? nodes_1.every(n1 => nodes_2.some(n2 => compare(n1, n2, isPositive)))
+                : nodes_1.some(n1 => nodes_2.some(n2 => compare(n1, n2, isPositive)));
+            });
+          } else {
+            captureName = steps[SECOND + 1];
+            const stringValue = steps[THIRD + 1];
+            let matches = (n) => n.text === stringValue;
+            let doesNotMatch = (n) => n.text !== stringValue;
+            predicates[i].push(function (captures) {
+              let nodes = [];
+              for (const c of captures) {
+                if (c.name === captureName) nodes.push(c.node);
+              }
+              let test = isPositive ? matches : doesNotMatch;
+              return matchAll
+                ? nodes.every(test)
+                : nodes.some(test);
+            });
+          }
+          break;
+
+        case 'any-not-match?':
+        case 'not-match?':
+          isPositive = false;
+        case 'any-match?':
+        case 'match?':
+          if (stepsLength !== 3) throw new Error(
+            `Wrong number of arguments to \`#match?\` predicate. Expected 2, got ${stepsLength - 1}.`
+          );
+          if (steps[SECOND] !== PREDICATE_STEP_TYPE.CAPTURE) throw new Error(
+            `First argument of \`#match?\` predicate must be a capture. Got "${steps[SECOND + 1]}".`
+          );
+          if (steps[THIRD] !== PREDICATE_STEP_TYPE.STRING) throw new Error(
+            `Second argument of \`#match?\` predicate must be a string. Got @${steps[THIRD + 1]}.`
+          );
+          captureName = steps[SECOND + 1];
+          const regex = new RegExp(steps[THIRD + 1]);
+          matchAll = !operator.startsWith('any-');
+          predicates[i].push(function (captures) {
+            const nodes = [];
+            for (const c of captures) {
+              if (c.name === captureName) nodes.push(c.node.text);
+            }
+            let test = (text, positive) => {
+              return positive ?
+                regex.test(text) :
+                !regex.test(text);
+            };
+            if (nodes.length === 0) return !isPositive;
+            return matchAll
+              ? nodes.every(text => test(text, isPositive))
+              : nodes.some(text => test(text, isPositive))
+            });
+          break;
+
+        case 'set!':
+          if (stepsLength < 2 || stepsLength > 3) throw new Error(
+            `Wrong number of arguments to \`#set!\` predicate. Expected 1 or 2. Got ${stepsLength - 1}.`
+          );
+          if (steps.some((s, i) => (i % 2 !== 1) && s !== PREDICATE_STEP_TYPE.STRING)) throw new Error(
+            `Arguments to \`#set!\` predicate must be a strings.".`
+          );
+          if (!setProperties[i]) setProperties[i] = {};
+          setProperties[i][steps[SECOND + 1]] = steps[THIRD] ? steps[THIRD + 1] : null;
+          break;
+
+        case 'is?':
+        case 'is-not?':
+          if (stepsLength < 2 || stepsLength > 3) throw new Error(
+            `Wrong number of arguments to \`#${operator}\` predicate. Expected 1 or 2. Got ${stepsLength - 1}.`
+          );
+          if (steps.some((s, i) => (i % 2 !== 1) && s !== PREDICATE_STEP_TYPE.STRING)) throw new Error(
+            `Arguments to \`#${operator}\` predicate must be a strings.".`
+          );
+          const properties = operator === 'is?' ? assertedProperties : refutedProperties;
+          if (!properties[i]) properties[i] = {};
+          properties[i][steps[SECOND + 1]] = steps[THIRD] ? steps[THIRD + 1] : null;
+          break;
+
+        case 'not-any-of?':
+          isPositive = false;
+        case 'any-of?':
+          if (stepsLength < 2) throw new Error(
+            `Wrong number of arguments to \`#${operator}\` predicate. Expected at least 1. Got ${stepsLength - 1}.`
+          );
+          if (steps[SECOND] !== PREDICATE_STEP_TYPE.CAPTURE) throw new Error(
+            `First argument of \`#${operator}\` predicate must be a capture. Got "${steps[1].value}".`
+          );
+          stringValues = [];
+          for (let k = THIRD; k < 2 * stepsLength; k += 2) {
+            if (steps[k] !== PREDICATE_STEP_TYPE.STRING) throw new Error(
+              `Arguments to \`#${operator}\` predicate must be a strings.".`
+            );
+            stringValues.push(steps[k + 1]);
+          }
+          captureName = steps[SECOND + 1];
+          predicates[i].push(function (captures) {
+            const nodes = [];
+            for (const c of captures) {
+              if (c.name === captureName) nodes.push(c.node.text);
+            }
+            if (nodes.length === 0) return !isPositive;
+            return nodes.every(text => stringValues.includes(text)) === isPositive;
+          });
+          break;
+
+        default:
+          throw new Error(`Unknown query predicate \`#${steps[FIRST + 1]}\``);
+      }
+    }
+  }
+
+  this.predicates = Object.freeze(predicates);
+  this.setProperties = Object.freeze(setProperties);
+  this.assertedProperties = Object.freeze(assertedProperties);
+  this.refutedProperties = Object.freeze(refutedProperties);
+}
+
+Query.prototype.matches = function(
+  node,
+  {
+    startPosition = ZERO_POINT,
+    endPosition = ZERO_POINT,
+    startIndex = 0,
+    endIndex = 0,
+    matchLimit = 0xFFFFFFFF,
+    maxStartDepth = 0xFFFFFFFF
+  } = {}
+) {
+  marshalNode(node);
+  const [returnedMatches, returnedNodes] = _matches.call(this, node.tree,
+    startPosition.row, startPosition.column,
+    endPosition.row, endPosition.column,
+    startIndex, endIndex, matchLimit, maxStartDepth
+  );
+  const nodes = unmarshalNodes(returnedNodes, node.tree);
+  const results = [];
+
+  let i = 0
+  let nodeIndex = 0;
+  while (i < returnedMatches.length) {
+    const patternIndex = returnedMatches[i++];
+    const captures = [];
+
+    while (i < returnedMatches.length && typeof returnedMatches[i] === 'string') {
+      const captureName = returnedMatches[i++];
+      captures.push({
+        name: captureName,
+        node: nodes[nodeIndex++],
+      })
+    }
+
+    if (this.predicates[patternIndex].every(p => p(captures))) {
+      const result = {pattern: patternIndex, captures};
+      const setProperties = this.setProperties[patternIndex];
+      const assertedProperties = this.assertedProperties[patternIndex];
+      const refutedProperties = this.refutedProperties[patternIndex];
+      if (setProperties) result.setProperties = setProperties;
+      if (assertedProperties) result.assertedProperties = assertedProperties;
+      if (refutedProperties) result.refutedProperties = refutedProperties;
+      results.push(result);
+    }
+  }
+
+  return results;
+}
+
+Query.prototype.captures = function(
+  node,
+  {
+    startPosition = ZERO_POINT,
+    endPosition = ZERO_POINT,
+    startIndex = 0,
+    endIndex = 0,
+    matchLimit = 0xFFFFFFFF,
+    maxStartDepth = 0xFFFFFFFF
+  } = {}
+) {
+  marshalNode(node);
+  const [returnedMatches, returnedNodes] = _captures.call(this, node.tree,
+    startPosition.row, startPosition.column,
+    endPosition.row, endPosition.column,
+    startIndex, endIndex, matchLimit, maxStartDepth
+  );
+  const nodes = unmarshalNodes(returnedNodes, node.tree);
+  const results = [];
+
+  let i = 0
+  let nodeIndex = 0;
+  while (i < returnedMatches.length) {
+    const patternIndex = returnedMatches[i++];
+    const captureIndex = returnedMatches[i++];
+    const captures = [];
+
+    while (i < returnedMatches.length && typeof returnedMatches[i] === 'string') {
+      const captureName = returnedMatches[i++];
+      captures.push({
+        name: captureName,
+        node: nodes[nodeIndex++],
+      })
+    }
+
+    if (this.predicates[patternIndex].every(p => p(captures))) {
+      const result = captures[captureIndex];
+      const setProperties = this.setProperties[patternIndex];
+      const assertedProperties = this.assertedProperties[patternIndex];
+      const refutedProperties = this.refutedProperties[patternIndex];
+      if (setProperties) result.setProperties = setProperties;
+      if (assertedProperties) result.assertedProperties = assertedProperties;
+      if (refutedProperties) result.refutedProperties = refutedProperties;
+      results.push(result);
+    }
+  }
+
+  return results;
+}
+
+/*
+ * LookaheadIterator
+ */
+
+LookaheadIterator.prototype[Symbol.iterator] = function() {
+  const self = this;
+  return {
+    next() {
+      if (self._next()) {
+        return {done: false, value: self.currentType};
+      }
+
+      return {done: true, value: ''};
+    },
+  };
+}
+
+/*
+ * Other functions
+ */
+
+function getTextFromString (node) {
+  return this.input.substring(node.startIndex, node.endIndex);
+}
+
+function getTextFromFunction ({startIndex, endIndex}) {
+  const {input} = this
+  let result = '';
+  const goalLength = endIndex - startIndex;
+  while (result.length < goalLength) {
+    const text = input(startIndex + result.length);
+    result += text;
+  }
+  return result.slice(0, goalLength);
+}
+
+const {pointTransferArray} = binding;
+
+const NODE_FIELD_COUNT = 6;
+const ERROR_TYPE_ID = 0xFFFF
+
+function getID(buffer, offset) {
+  const low  = BigInt(buffer[offset]);
+  const high = BigInt(buffer[offset + 1]);
+  return (high << 32n) + low;
+}
+
+function unmarshalNode(value, tree, offset = 0, cache = null) {
+  /* case 1: node from the tree cache */
+  if (typeof value === 'object') {
+    const node = value;
+    return node;
+  }
+
+  /* case 2: node being transferred */
+  const nodeTypeId = value;
+  const NodeClass = nodeTypeId === ERROR_TYPE_ID
+    ? SyntaxNode
+    : tree.language.nodeSubclasses[nodeTypeId];
+
+  const {nodeTransferArray} = binding;
+  const id = getID(nodeTransferArray, offset)
+  if (id === 0n) {
+    return null
+  }
+
+  let cachedResult;
+  if (cache && (cachedResult = cache.get(id)))
+    return cachedResult;
+
+  const result = new NodeClass(tree);
+  for (let i = 0; i < NODE_FIELD_COUNT; i++) {
+    result[i] = nodeTransferArray[offset + i];
+  }
+
+  if (cache)
+    cache.set(id, result);
+  else
+    tree._cacheNode(result);
+
+  return result;
+}
+
+function unmarshalNodes(nodes, tree) {
+  const cache = new Map();
+
+  let offset = 0;
+  for (let i = 0, {length} = nodes; i < length; i++) {
+    const node = unmarshalNode(nodes[i], tree, offset, cache);
+    if (node !== nodes[i]) {
+      nodes[i] = node;
+      offset += NODE_FIELD_COUNT
+    }
+  }
+
+  tree._cacheNodes(Array.from(cache.values()));
+
+  return nodes;
+}
+
+function marshalNode(node) {
+  if (!(node.tree instanceof Tree)){
+    throw new TypeError("SyntaxNode must belong to a Tree")
+  }
+  const {nodeTransferArray} = binding;
+  for (let i = 0; i < NODE_FIELD_COUNT; i++) {
+    nodeTransferArray[i] = node[i];
+  }
+}
+
+function unmarshalPoint() {
+  return {row: pointTransferArray[0], column: pointTransferArray[1]};
+}
+
+function pointToString(point) {
+  return `{row: ${point.row}, column: ${point.column}}`;
+}
+
+function initializeLanguageNodeClasses(language) {
+  const nodeTypeNamesById = binding.getNodeTypeNamesById(language);
+  const nodeFieldNamesById = binding.getNodeFieldNamesById(language);
+  const nodeTypeInfo = language.nodeTypeInfo || [];
+
+  const nodeSubclasses = [];
+  for (let id = 0, n = nodeTypeNamesById.length; id < n; id++) {
+    nodeSubclasses[id] = SyntaxNode;
+
+    const typeName = nodeTypeNamesById[id];
+    if (!typeName) continue;
+
+    const typeInfo = nodeTypeInfo.find(info => info.named && info.type === typeName);
+    if (!typeInfo) continue;
+
+    const fieldNames = [];
+    let classBody = '\n';
+    if (typeInfo.fields) {
+      for (const fieldName in typeInfo.fields) {
+        const fieldId = nodeFieldNamesById.indexOf(fieldName);
+        if (fieldId === -1) continue;
+        if (typeInfo.fields[fieldName].multiple) {
+          const getterName = camelCase(fieldName) + 'Nodes';
+          fieldNames.push(getterName);
+          classBody += `
+            get ${getterName}() {
+              marshalNode(this);
+              return unmarshalNodes(NodeMethods.childNodesForFieldId(this.tree, ${fieldId}), this.tree);
+            }
+          `.replace(/\s+/g, ' ') + '\n';
+        } else {
+          const getterName = camelCase(fieldName, false) + 'Node';
+          fieldNames.push(getterName);
+          classBody += `
+            get ${getterName}() {
+              marshalNode(this);
+              return unmarshalNode(NodeMethods.childNodeForFieldId(this.tree, ${fieldId}), this.tree);
+            }
+          `.replace(/\s+/g, ' ') + '\n';
+        }
+      }
+    }
+
+    const className = camelCase(typeName, true) + 'Node';
+    const nodeSubclass = eval(`class ${className} extends SyntaxNode {${classBody}}; ${className}`);
+    nodeSubclass.prototype.type = typeName;
+    nodeSubclass.prototype.fields = Object.freeze(fieldNames.sort())
+    nodeSubclasses[id] = nodeSubclass;
+  }
+
+  language.nodeSubclasses = nodeSubclasses
+}
+
+function camelCase(name, upperCase) {
+  name = name.replace(/_(\w)/g, (_match, letter) => letter.toUpperCase());
+  if (upperCase) name = name[0].toUpperCase() + name.slice(1);
+  return name;
+}
+
+module.exports = Parser;
+module.exports.Query = Query;
+module.exports.Tree = Tree;
+module.exports.SyntaxNode = SyntaxNode;
+module.exports.TreeCursor = TreeCursor;
+module.exports.LookaheadIterator = LookaheadIterator;
+
+
+/***/ }),
+/* 17 */
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+const runtimeRequire =  true ? require : 0 // eslint-disable-line
+if (typeof runtimeRequire.addon === 'function') { // if the platform supports native resolving prefer that
+  module.exports = runtimeRequire.addon.bind(runtimeRequire)
+} else { // else use the runtime version here
+  module.exports = __webpack_require__(18)
+}
+
+
+/***/ }),
+/* 18 */
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+var fs = __webpack_require__(6)
+var path = __webpack_require__(2)
+var os = __webpack_require__(19)
+
+// Workaround to fix webpack's build warnings: 'the request of a dependency is an expression'
+var runtimeRequire =  true ? require : 0 // eslint-disable-line
+
+var vars = (process.config && process.config.variables) || {}
+var prebuildsOnly = !!process.env.PREBUILDS_ONLY
+var abi = process.versions.modules // TODO: support old node where this is undef
+var runtime = isElectron() ? 'electron' : (isNwjs() ? 'node-webkit' : 'node')
+
+var arch = process.env.npm_config_arch || os.arch()
+var platform = process.env.npm_config_platform || os.platform()
+var libc = process.env.LIBC || (isAlpine(platform) ? 'musl' : 'glibc')
+var armv = process.env.ARM_VERSION || (arch === 'arm64' ? '8' : vars.arm_version) || ''
+var uv = (process.versions.uv || '').split('.')[0]
+
+module.exports = load
+
+function load (dir) {
+  return runtimeRequire(load.resolve(dir))
+}
+
+load.resolve = load.path = function (dir) {
+  dir = path.resolve(dir || '.')
+
+  try {
+    var name = runtimeRequire(path.join(dir, 'package.json')).name.toUpperCase().replace(/-/g, '_')
+    if (process.env[name + '_PREBUILD']) dir = process.env[name + '_PREBUILD']
+  } catch (err) {}
+
+  if (!prebuildsOnly) {
+    var release = getFirst(path.join(dir, 'build/Release'), matchBuild)
+    if (release) return release
+
+    var debug = getFirst(path.join(dir, 'build/Debug'), matchBuild)
+    if (debug) return debug
+  }
+
+  var prebuild = resolve(dir)
+  if (prebuild) return prebuild
+
+  var nearby = resolve(path.dirname(process.execPath))
+  if (nearby) return nearby
+
+  var target = [
+    'platform=' + platform,
+    'arch=' + arch,
+    'runtime=' + runtime,
+    'abi=' + abi,
+    'uv=' + uv,
+    armv ? 'armv=' + armv : '',
+    'libc=' + libc,
+    'node=' + process.versions.node,
+    process.versions.electron ? 'electron=' + process.versions.electron : '',
+     true ? 'webpack=true' : 0 // eslint-disable-line
+  ].filter(Boolean).join(' ')
+
+  throw new Error('No native build was found for ' + target + '\n    loaded from: ' + dir + '\n')
+
+  function resolve (dir) {
+    // Find matching "prebuilds/<platform>-<arch>" directory
+    var tuples = readdirSync(path.join(dir, 'prebuilds')).map(parseTuple)
+    var tuple = tuples.filter(matchTuple(platform, arch)).sort(compareTuples)[0]
+    if (!tuple) return
+
+    // Find most specific flavor first
+    var prebuilds = path.join(dir, 'prebuilds', tuple.name)
+    var parsed = readdirSync(prebuilds).map(parseTags)
+    var candidates = parsed.filter(matchTags(runtime, abi))
+    var winner = candidates.sort(compareTags(runtime))[0]
+    if (winner) return path.join(prebuilds, winner.file)
+  }
+}
+
+function readdirSync (dir) {
+  try {
+    return fs.readdirSync(dir)
+  } catch (err) {
+    return []
+  }
+}
+
+function getFirst (dir, filter) {
+  var files = readdirSync(dir).filter(filter)
+  return files[0] && path.join(dir, files[0])
+}
+
+function matchBuild (name) {
+  return /\.node$/.test(name)
+}
+
+function parseTuple (name) {
+  // Example: darwin-x64+arm64
+  var arr = name.split('-')
+  if (arr.length !== 2) return
+
+  var platform = arr[0]
+  var architectures = arr[1].split('+')
+
+  if (!platform) return
+  if (!architectures.length) return
+  if (!architectures.every(Boolean)) return
+
+  return { name, platform, architectures }
+}
+
+function matchTuple (platform, arch) {
+  return function (tuple) {
+    if (tuple == null) return false
+    if (tuple.platform !== platform) return false
+    return tuple.architectures.includes(arch)
+  }
+}
+
+function compareTuples (a, b) {
+  // Prefer single-arch prebuilds over multi-arch
+  return a.architectures.length - b.architectures.length
+}
+
+function parseTags (file) {
+  var arr = file.split('.')
+  var extension = arr.pop()
+  var tags = { file: file, specificity: 0 }
+
+  if (extension !== 'node') return
+
+  for (var i = 0; i < arr.length; i++) {
+    var tag = arr[i]
+
+    if (tag === 'node' || tag === 'electron' || tag === 'node-webkit') {
+      tags.runtime = tag
+    } else if (tag === 'napi') {
+      tags.napi = true
+    } else if (tag.slice(0, 3) === 'abi') {
+      tags.abi = tag.slice(3)
+    } else if (tag.slice(0, 2) === 'uv') {
+      tags.uv = tag.slice(2)
+    } else if (tag.slice(0, 4) === 'armv') {
+      tags.armv = tag.slice(4)
+    } else if (tag === 'glibc' || tag === 'musl') {
+      tags.libc = tag
+    } else {
+      continue
+    }
+
+    tags.specificity++
+  }
+
+  return tags
+}
+
+function matchTags (runtime, abi) {
+  return function (tags) {
+    if (tags == null) return false
+    if (tags.runtime && tags.runtime !== runtime && !runtimeAgnostic(tags)) return false
+    if (tags.abi && tags.abi !== abi && !tags.napi) return false
+    if (tags.uv && tags.uv !== uv) return false
+    if (tags.armv && tags.armv !== armv) return false
+    if (tags.libc && tags.libc !== libc) return false
+
+    return true
+  }
+}
+
+function runtimeAgnostic (tags) {
+  return tags.runtime === 'node' && tags.napi
+}
+
+function compareTags (runtime) {
+  // Precedence: non-agnostic runtime, abi over napi, then by specificity.
+  return function (a, b) {
+    if (a.runtime !== b.runtime) {
+      return a.runtime === runtime ? -1 : 1
+    } else if (a.abi !== b.abi) {
+      return a.abi ? -1 : 1
+    } else if (a.specificity !== b.specificity) {
+      return a.specificity > b.specificity ? -1 : 1
+    } else {
+      return 0
+    }
+  }
+}
+
+function isNwjs () {
+  return !!(process.versions && process.versions.nw)
+}
+
+function isElectron () {
+  if (process.versions && process.versions.electron) return true
+  if (process.env.ELECTRON_RUN_AS_NODE) return true
+  return typeof window !== 'undefined' && window.process && window.process.type === 'renderer'
+}
+
+function isAlpine (platform) {
+  return platform === 'linux' && fs.existsSync('/etc/alpine-release')
+}
+
+// Exposed for unit tests
+// TODO: move to lib
+load.parseTags = parseTags
+load.matchTags = matchTags
+load.compareTags = compareTags
+load.parseTuple = parseTuple
+load.matchTuple = matchTuple
+load.compareTuples = compareTuples
+
+
+/***/ }),
+/* 19 */
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("os");
+
+/***/ }),
+/* 20 */
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("util");
+
+/***/ }),
+/* 21 */
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+const root = (__webpack_require__(2).join)(__dirname, "..", "..");
+
+module.exports = __webpack_require__(17)(root);
+
+try {
+  module.exports.typescript.nodeTypeInfo = __webpack_require__(22);
+  module.exports.tsx.nodeTypeInfo = __webpack_require__(23);
+} catch (_) { }
+
+
+/***/ }),
+/* 22 */
+/***/ ((module) => {
+
+"use strict";
+module.exports = /*#__PURE__*/JSON.parse('[{"type":"declaration","named":true,"subtypes":[{"type":"abstract_class_declaration","named":true},{"type":"ambient_declaration","named":true},{"type":"class_declaration","named":true},{"type":"enum_declaration","named":true},{"type":"function_declaration","named":true},{"type":"function_signature","named":true},{"type":"generator_function_declaration","named":true},{"type":"import_alias","named":true},{"type":"interface_declaration","named":true},{"type":"internal_module","named":true},{"type":"lexical_declaration","named":true},{"type":"module","named":true},{"type":"type_alias_declaration","named":true},{"type":"variable_declaration","named":true}]},{"type":"expression","named":true,"subtypes":[{"type":"as_expression","named":true},{"type":"assignment_expression","named":true},{"type":"augmented_assignment_expression","named":true},{"type":"await_expression","named":true},{"type":"binary_expression","named":true},{"type":"glimmer_template","named":true},{"type":"instantiation_expression","named":true},{"type":"internal_module","named":true},{"type":"new_expression","named":true},{"type":"primary_expression","named":true},{"type":"satisfies_expression","named":true},{"type":"ternary_expression","named":true},{"type":"type_assertion","named":true},{"type":"unary_expression","named":true},{"type":"update_expression","named":true},{"type":"yield_expression","named":true}]},{"type":"pattern","named":true,"subtypes":[{"type":"array_pattern","named":true},{"type":"identifier","named":true},{"type":"member_expression","named":true},{"type":"non_null_expression","named":true},{"type":"object_pattern","named":true},{"type":"rest_pattern","named":true},{"type":"subscript_expression","named":true},{"type":"undefined","named":true}]},{"type":"primary_expression","named":true,"subtypes":[{"type":"array","named":true},{"type":"arrow_function","named":true},{"type":"call_expression","named":true},{"type":"class","named":true},{"type":"false","named":true},{"type":"function_expression","named":true},{"type":"generator_function","named":true},{"type":"identifier","named":true},{"type":"member_expression","named":true},{"type":"meta_property","named":true},{"type":"non_null_expression","named":true},{"type":"null","named":true},{"type":"number","named":true},{"type":"object","named":true},{"type":"parenthesized_expression","named":true},{"type":"regex","named":true},{"type":"string","named":true},{"type":"subscript_expression","named":true},{"type":"super","named":true},{"type":"template_string","named":true},{"type":"this","named":true},{"type":"true","named":true},{"type":"undefined","named":true}]},{"type":"primary_type","named":true,"subtypes":[{"type":"array_type","named":true},{"type":"conditional_type","named":true},{"type":"const","named":false},{"type":"existential_type","named":true},{"type":"flow_maybe_type","named":true},{"type":"generic_type","named":true},{"type":"index_type_query","named":true},{"type":"intersection_type","named":true},{"type":"literal_type","named":true},{"type":"lookup_type","named":true},{"type":"nested_type_identifier","named":true},{"type":"object_type","named":true},{"type":"parenthesized_type","named":true},{"type":"predefined_type","named":true},{"type":"template_literal_type","named":true},{"type":"this_type","named":true},{"type":"tuple_type","named":true},{"type":"type_identifier","named":true},{"type":"type_query","named":true},{"type":"union_type","named":true}]},{"type":"statement","named":true,"subtypes":[{"type":"break_statement","named":true},{"type":"continue_statement","named":true},{"type":"debugger_statement","named":true},{"type":"declaration","named":true},{"type":"do_statement","named":true},{"type":"empty_statement","named":true},{"type":"export_statement","named":true},{"type":"expression_statement","named":true},{"type":"for_in_statement","named":true},{"type":"for_statement","named":true},{"type":"if_statement","named":true},{"type":"import_statement","named":true},{"type":"labeled_statement","named":true},{"type":"return_statement","named":true},{"type":"statement_block","named":true},{"type":"switch_statement","named":true},{"type":"throw_statement","named":true},{"type":"try_statement","named":true},{"type":"while_statement","named":true},{"type":"with_statement","named":true}]},{"type":"type","named":true,"subtypes":[{"type":"call_expression","named":true},{"type":"constructor_type","named":true},{"type":"function_type","named":true},{"type":"infer_type","named":true},{"type":"member_expression","named":true},{"type":"primary_type","named":true},{"type":"readonly_type","named":true}]},{"type":"abstract_class_declaration","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"class_body","named":true}]},"decorator":{"multiple":true,"required":false,"types":[{"type":"decorator","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"type_identifier","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]}},"children":{"multiple":false,"required":false,"types":[{"type":"class_heritage","named":true}]}},{"type":"abstract_method_signature","named":true,"fields":{"name":{"multiple":false,"required":true,"types":[{"type":"computed_property_name","named":true},{"type":"number","named":true},{"type":"private_property_identifier","named":true},{"type":"property_identifier","named":true},{"type":"string","named":true}]},"parameters":{"multiple":false,"required":true,"types":[{"type":"formal_parameters","named":true}]},"return_type":{"multiple":false,"required":false,"types":[{"type":"asserts_annotation","named":true},{"type":"type_annotation","named":true},{"type":"type_predicate_annotation","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]}},"children":{"multiple":true,"required":false,"types":[{"type":"accessibility_modifier","named":true},{"type":"override_modifier","named":true}]}},{"type":"accessibility_modifier","named":true,"fields":{}},{"type":"adding_type_annotation","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]}},{"type":"ambient_declaration","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"declaration","named":true},{"type":"property_identifier","named":true},{"type":"statement_block","named":true},{"type":"type","named":true}]}},{"type":"arguments","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"expression","named":true},{"type":"spread_element","named":true}]}},{"type":"array","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"expression","named":true},{"type":"spread_element","named":true}]}},{"type":"array_pattern","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"assignment_pattern","named":true},{"type":"pattern","named":true}]}},{"type":"array_type","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"primary_type","named":true}]}},{"type":"arrow_function","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"statement_block","named":true}]},"parameter":{"multiple":false,"required":false,"types":[{"type":"identifier","named":true}]},"parameters":{"multiple":false,"required":false,"types":[{"type":"formal_parameters","named":true}]},"return_type":{"multiple":false,"required":false,"types":[{"type":"asserts_annotation","named":true},{"type":"type_annotation","named":true},{"type":"type_predicate_annotation","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]}}},{"type":"as_expression","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"expression","named":true},{"type":"type","named":true}]}},{"type":"asserts","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true},{"type":"this","named":true},{"type":"type_predicate","named":true}]}},{"type":"asserts_annotation","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"asserts","named":true}]}},{"type":"assignment_expression","named":true,"fields":{"left":{"multiple":false,"required":true,"types":[{"type":"array_pattern","named":true},{"type":"identifier","named":true},{"type":"member_expression","named":true},{"type":"non_null_expression","named":true},{"type":"object_pattern","named":true},{"type":"parenthesized_expression","named":true},{"type":"subscript_expression","named":true},{"type":"undefined","named":true}]},"right":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}}},{"type":"assignment_pattern","named":true,"fields":{"left":{"multiple":false,"required":true,"types":[{"type":"pattern","named":true}]},"right":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}}},{"type":"augmented_assignment_expression","named":true,"fields":{"left":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true},{"type":"member_expression","named":true},{"type":"non_null_expression","named":true},{"type":"parenthesized_expression","named":true},{"type":"subscript_expression","named":true}]},"operator":{"multiple":false,"required":true,"types":[{"type":"%=","named":false},{"type":"&&=","named":false},{"type":"&=","named":false},{"type":"**=","named":false},{"type":"*=","named":false},{"type":"+=","named":false},{"type":"-=","named":false},{"type":"/=","named":false},{"type":"<<=","named":false},{"type":">>=","named":false},{"type":">>>=","named":false},{"type":"??=","named":false},{"type":"^=","named":false},{"type":"|=","named":false},{"type":"||=","named":false}]},"right":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}}},{"type":"await_expression","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}},{"type":"binary_expression","named":true,"fields":{"left":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"private_property_identifier","named":true}]},"operator":{"multiple":false,"required":true,"types":[{"type":"!=","named":false},{"type":"!==","named":false},{"type":"%","named":false},{"type":"&","named":false},{"type":"&&","named":false},{"type":"*","named":false},{"type":"**","named":false},{"type":"+","named":false},{"type":"-","named":false},{"type":"/","named":false},{"type":"<","named":false},{"type":"<<","named":false},{"type":"<=","named":false},{"type":"==","named":false},{"type":"===","named":false},{"type":">","named":false},{"type":">=","named":false},{"type":">>","named":false},{"type":">>>","named":false},{"type":"??","named":false},{"type":"^","named":false},{"type":"in","named":false},{"type":"instanceof","named":false},{"type":"|","named":false},{"type":"||","named":false}]},"right":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}}},{"type":"break_statement","named":true,"fields":{"label":{"multiple":false,"required":false,"types":[{"type":"statement_identifier","named":true}]}}},{"type":"call_expression","named":true,"fields":{"arguments":{"multiple":false,"required":true,"types":[{"type":"arguments","named":true},{"type":"template_string","named":true}]},"function":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"import","named":true}]},"type_arguments":{"multiple":false,"required":false,"types":[{"type":"type_arguments","named":true}]}}},{"type":"call_signature","named":true,"fields":{"parameters":{"multiple":false,"required":true,"types":[{"type":"formal_parameters","named":true}]},"return_type":{"multiple":false,"required":false,"types":[{"type":"asserts_annotation","named":true},{"type":"type_annotation","named":true},{"type":"type_predicate_annotation","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]}}},{"type":"catch_clause","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement_block","named":true}]},"parameter":{"multiple":false,"required":false,"types":[{"type":"array_pattern","named":true},{"type":"identifier","named":true},{"type":"object_pattern","named":true}]},"type":{"multiple":false,"required":false,"types":[{"type":"type_annotation","named":true}]}}},{"type":"class","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"class_body","named":true}]},"decorator":{"multiple":true,"required":false,"types":[{"type":"decorator","named":true}]},"name":{"multiple":false,"required":false,"types":[{"type":"type_identifier","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]}},"children":{"multiple":false,"required":false,"types":[{"type":"class_heritage","named":true}]}},{"type":"class_body","named":true,"fields":{"decorator":{"multiple":true,"required":false,"types":[{"type":"decorator","named":true}]}},"children":{"multiple":true,"required":false,"types":[{"type":"abstract_method_signature","named":true},{"type":"class_static_block","named":true},{"type":"index_signature","named":true},{"type":"method_definition","named":true},{"type":"method_signature","named":true},{"type":"public_field_definition","named":true}]}},{"type":"class_declaration","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"class_body","named":true}]},"decorator":{"multiple":true,"required":false,"types":[{"type":"decorator","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"type_identifier","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]}},"children":{"multiple":false,"required":false,"types":[{"type":"class_heritage","named":true}]}},{"type":"class_heritage","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"extends_clause","named":true},{"type":"implements_clause","named":true}]}},{"type":"class_static_block","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement_block","named":true}]}}},{"type":"computed_property_name","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}},{"type":"conditional_type","named":true,"fields":{"alternative":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]},"consequence":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]},"left":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]},"right":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]}}},{"type":"constraint","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]}},{"type":"construct_signature","named":true,"fields":{"parameters":{"multiple":false,"required":true,"types":[{"type":"formal_parameters","named":true}]},"type":{"multiple":false,"required":false,"types":[{"type":"type_annotation","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]}}},{"type":"constructor_type","named":true,"fields":{"parameters":{"multiple":false,"required":true,"types":[{"type":"formal_parameters","named":true}]},"type":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]}}},{"type":"continue_statement","named":true,"fields":{"label":{"multiple":false,"required":false,"types":[{"type":"statement_identifier","named":true}]}}},{"type":"debugger_statement","named":true,"fields":{}},{"type":"decorator","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"call_expression","named":true},{"type":"identifier","named":true},{"type":"member_expression","named":true}]}},{"type":"default_type","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]}},{"type":"do_statement","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement","named":true}]},"condition":{"multiple":false,"required":true,"types":[{"type":"parenthesized_expression","named":true}]}}},{"type":"else_clause","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"statement","named":true}]}},{"type":"empty_statement","named":true,"fields":{}},{"type":"enum_assignment","named":true,"fields":{"name":{"multiple":false,"required":true,"types":[{"type":"computed_property_name","named":true},{"type":"number","named":true},{"type":"private_property_identifier","named":true},{"type":"property_identifier","named":true},{"type":"string","named":true}]},"value":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}}},{"type":"enum_body","named":true,"fields":{"name":{"multiple":true,"required":false,"types":[{"type":"computed_property_name","named":true},{"type":"number","named":true},{"type":"private_property_identifier","named":true},{"type":"property_identifier","named":true},{"type":"string","named":true}]}},"children":{"multiple":true,"required":false,"types":[{"type":"enum_assignment","named":true}]}},{"type":"enum_declaration","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"enum_body","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true}]}}},{"type":"existential_type","named":true,"fields":{}},{"type":"export_clause","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"export_specifier","named":true}]}},{"type":"export_specifier","named":true,"fields":{"alias":{"multiple":false,"required":false,"types":[{"type":"identifier","named":true},{"type":"string","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true},{"type":"string","named":true}]}}},{"type":"export_statement","named":true,"fields":{"declaration":{"multiple":false,"required":false,"types":[{"type":"declaration","named":true}]},"decorator":{"multiple":true,"required":false,"types":[{"type":"decorator","named":true}]},"source":{"multiple":false,"required":false,"types":[{"type":"string","named":true}]},"value":{"multiple":false,"required":false,"types":[{"type":"expression","named":true}]}},"children":{"multiple":false,"required":false,"types":[{"type":"export_clause","named":true},{"type":"expression","named":true},{"type":"identifier","named":true},{"type":"namespace_export","named":true}]}},{"type":"expression_statement","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"sequence_expression","named":true}]}},{"type":"extends_clause","named":true,"fields":{"type_arguments":{"multiple":true,"required":false,"types":[{"type":"type_arguments","named":true}]},"value":{"multiple":true,"required":true,"types":[{"type":"expression","named":true}]}}},{"type":"extends_type_clause","named":true,"fields":{"type":{"multiple":true,"required":true,"types":[{"type":"generic_type","named":true},{"type":"nested_type_identifier","named":true},{"type":"type_identifier","named":true}]}}},{"type":"finally_clause","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement_block","named":true}]}}},{"type":"flow_maybe_type","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"primary_type","named":true}]}},{"type":"for_in_statement","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement","named":true}]},"kind":{"multiple":false,"required":false,"types":[{"type":"const","named":false},{"type":"let","named":false},{"type":"var","named":false}]},"left":{"multiple":false,"required":true,"types":[{"type":"array_pattern","named":true},{"type":"identifier","named":true},{"type":"member_expression","named":true},{"type":"non_null_expression","named":true},{"type":"object_pattern","named":true},{"type":"parenthesized_expression","named":true},{"type":"subscript_expression","named":true},{"type":"undefined","named":true}]},"operator":{"multiple":false,"required":true,"types":[{"type":"in","named":false},{"type":"of","named":false}]},"right":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"sequence_expression","named":true}]},"value":{"multiple":false,"required":false,"types":[{"type":"expression","named":true}]}}},{"type":"for_statement","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement","named":true}]},"condition":{"multiple":false,"required":true,"types":[{"type":"empty_statement","named":true},{"type":"expression_statement","named":true}]},"increment":{"multiple":false,"required":false,"types":[{"type":"expression","named":true},{"type":"sequence_expression","named":true}]},"initializer":{"multiple":false,"required":true,"types":[{"type":"empty_statement","named":true},{"type":"expression_statement","named":true},{"type":"lexical_declaration","named":true},{"type":"variable_declaration","named":true}]}}},{"type":"formal_parameters","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"optional_parameter","named":true},{"type":"required_parameter","named":true}]}},{"type":"function_declaration","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement_block","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true}]},"parameters":{"multiple":false,"required":true,"types":[{"type":"formal_parameters","named":true}]},"return_type":{"multiple":false,"required":false,"types":[{"type":"asserts_annotation","named":true},{"type":"type_annotation","named":true},{"type":"type_predicate_annotation","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]}}},{"type":"function_expression","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement_block","named":true}]},"name":{"multiple":false,"required":false,"types":[{"type":"identifier","named":true}]},"parameters":{"multiple":false,"required":true,"types":[{"type":"formal_parameters","named":true}]},"return_type":{"multiple":false,"required":false,"types":[{"type":"asserts_annotation","named":true},{"type":"type_annotation","named":true},{"type":"type_predicate_annotation","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]}}},{"type":"function_signature","named":true,"fields":{"name":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true}]},"parameters":{"multiple":false,"required":true,"types":[{"type":"formal_parameters","named":true}]},"return_type":{"multiple":false,"required":false,"types":[{"type":"asserts_annotation","named":true},{"type":"type_annotation","named":true},{"type":"type_predicate_annotation","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]}}},{"type":"function_type","named":true,"fields":{"parameters":{"multiple":false,"required":true,"types":[{"type":"formal_parameters","named":true}]},"return_type":{"multiple":false,"required":true,"types":[{"type":"asserts","named":true},{"type":"type","named":true},{"type":"type_predicate","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]}}},{"type":"generator_function","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement_block","named":true}]},"name":{"multiple":false,"required":false,"types":[{"type":"identifier","named":true}]},"parameters":{"multiple":false,"required":true,"types":[{"type":"formal_parameters","named":true}]},"return_type":{"multiple":false,"required":false,"types":[{"type":"asserts_annotation","named":true},{"type":"type_annotation","named":true},{"type":"type_predicate_annotation","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]}}},{"type":"generator_function_declaration","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement_block","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true}]},"parameters":{"multiple":false,"required":true,"types":[{"type":"formal_parameters","named":true}]},"return_type":{"multiple":false,"required":false,"types":[{"type":"asserts_annotation","named":true},{"type":"type_annotation","named":true},{"type":"type_predicate_annotation","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]}}},{"type":"generic_type","named":true,"fields":{"name":{"multiple":false,"required":true,"types":[{"type":"nested_type_identifier","named":true},{"type":"type_identifier","named":true}]},"type_arguments":{"multiple":false,"required":true,"types":[{"type":"type_arguments","named":true}]}}},{"type":"glimmer_template","named":true,"fields":{"close_tag":{"multiple":false,"required":true,"types":[{"type":"glimmer_closing_tag","named":true}]},"open_tag":{"multiple":false,"required":true,"types":[{"type":"glimmer_opening_tag","named":true}]}}},{"type":"identifier","named":true,"fields":{}},{"type":"if_statement","named":true,"fields":{"alternative":{"multiple":false,"required":false,"types":[{"type":"else_clause","named":true}]},"condition":{"multiple":false,"required":true,"types":[{"type":"parenthesized_expression","named":true}]},"consequence":{"multiple":false,"required":true,"types":[{"type":"statement","named":true}]}}},{"type":"implements_clause","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"type","named":true}]}},{"type":"import","named":true,"fields":{}},{"type":"import_alias","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"identifier","named":true},{"type":"nested_identifier","named":true}]}},{"type":"import_attribute","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"object","named":true}]}},{"type":"import_clause","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"identifier","named":true},{"type":"named_imports","named":true},{"type":"namespace_import","named":true}]}},{"type":"import_require_clause","named":true,"fields":{"source":{"multiple":false,"required":true,"types":[{"type":"string","named":true}]}},"children":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true}]}},{"type":"import_specifier","named":true,"fields":{"alias":{"multiple":false,"required":false,"types":[{"type":"identifier","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true},{"type":"string","named":true}]}}},{"type":"import_statement","named":true,"fields":{"source":{"multiple":false,"required":false,"types":[{"type":"string","named":true}]}},"children":{"multiple":true,"required":false,"types":[{"type":"import_attribute","named":true},{"type":"import_clause","named":true},{"type":"import_require_clause","named":true}]}},{"type":"index_signature","named":true,"fields":{"index_type":{"multiple":false,"required":false,"types":[{"type":"type","named":true}]},"name":{"multiple":false,"required":false,"types":[{"type":"identifier","named":true}]},"sign":{"multiple":false,"required":false,"types":[{"type":"+","named":false},{"type":"-","named":false}]},"type":{"multiple":false,"required":true,"types":[{"type":"adding_type_annotation","named":true},{"type":"omitting_type_annotation","named":true},{"type":"opting_type_annotation","named":true},{"type":"type_annotation","named":true}]}},"children":{"multiple":false,"required":false,"types":[{"type":"mapped_type_clause","named":true}]}},{"type":"index_type_query","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"primary_type","named":true}]}},{"type":"infer_type","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"type","named":true},{"type":"type_identifier","named":true}]}},{"type":"instantiation_expression","named":true,"fields":{"function":{"multiple":false,"required":false,"types":[{"type":"identifier","named":true},{"type":"import","named":true},{"type":"member_expression","named":true},{"type":"subscript_expression","named":true}]},"type_arguments":{"multiple":false,"required":true,"types":[{"type":"type_arguments","named":true}]}},"children":{"multiple":false,"required":false,"types":[{"type":"expression","named":true}]}},{"type":"interface_body","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"call_signature","named":true},{"type":"construct_signature","named":true},{"type":"export_statement","named":true},{"type":"index_signature","named":true},{"type":"method_signature","named":true},{"type":"property_signature","named":true}]}},{"type":"interface_declaration","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"interface_body","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"type_identifier","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]}},"children":{"multiple":false,"required":false,"types":[{"type":"extends_type_clause","named":true}]}},{"type":"internal_module","named":true,"fields":{"body":{"multiple":false,"required":false,"types":[{"type":"statement_block","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true},{"type":"nested_identifier","named":true},{"type":"string","named":true}]}}},{"type":"intersection_type","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"type","named":true}]}},{"type":"jsx_attribute","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"jsx_element","named":true},{"type":"jsx_expression","named":true},{"type":"jsx_namespace_name","named":true},{"type":"jsx_self_closing_element","named":true},{"type":"property_identifier","named":true},{"type":"string","named":true}]}},{"type":"jsx_closing_element","named":true,"fields":{"name":{"multiple":false,"required":false,"types":[{"type":"identifier","named":true},{"type":"jsx_namespace_name","named":true},{"type":"member_expression","named":true}]}}},{"type":"jsx_element","named":true,"fields":{"close_tag":{"multiple":false,"required":true,"types":[{"type":"jsx_closing_element","named":true}]},"open_tag":{"multiple":false,"required":true,"types":[{"type":"jsx_opening_element","named":true}]}},"children":{"multiple":true,"required":false,"types":[{"type":"html_character_reference","named":true},{"type":"jsx_element","named":true},{"type":"jsx_expression","named":true},{"type":"jsx_self_closing_element","named":true},{"type":"jsx_text","named":true}]}},{"type":"jsx_expression","named":true,"fields":{},"children":{"multiple":false,"required":false,"types":[{"type":"expression","named":true},{"type":"sequence_expression","named":true},{"type":"spread_element","named":true}]}},{"type":"jsx_namespace_name","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"identifier","named":true}]}},{"type":"jsx_opening_element","named":true,"fields":{"attribute":{"multiple":true,"required":false,"types":[{"type":"jsx_attribute","named":true},{"type":"jsx_expression","named":true}]},"name":{"multiple":false,"required":false,"types":[{"type":"identifier","named":true},{"type":"jsx_namespace_name","named":true},{"type":"member_expression","named":true}]},"type_arguments":{"multiple":false,"required":false,"types":[{"type":"type_arguments","named":true}]}}},{"type":"jsx_self_closing_element","named":true,"fields":{"attribute":{"multiple":true,"required":false,"types":[{"type":"jsx_attribute","named":true},{"type":"jsx_expression","named":true}]},"name":{"multiple":false,"required":false,"types":[{"type":"identifier","named":true},{"type":"jsx_namespace_name","named":true},{"type":"member_expression","named":true}]},"type_arguments":{"multiple":false,"required":false,"types":[{"type":"type_arguments","named":true}]}}},{"type":"jsx_text","named":true,"fields":{}},{"type":"labeled_statement","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement","named":true}]},"label":{"multiple":false,"required":true,"types":[{"type":"statement_identifier","named":true}]}}},{"type":"lexical_declaration","named":true,"fields":{"kind":{"multiple":false,"required":true,"types":[{"type":"const","named":false},{"type":"let","named":false}]}},"children":{"multiple":true,"required":true,"types":[{"type":"variable_declarator","named":true}]}},{"type":"literal_type","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"false","named":true},{"type":"null","named":true},{"type":"number","named":true},{"type":"string","named":true},{"type":"true","named":true},{"type":"unary_expression","named":true},{"type":"undefined","named":true}]}},{"type":"lookup_type","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"type","named":true}]}},{"type":"mapped_type_clause","named":true,"fields":{"alias":{"multiple":false,"required":false,"types":[{"type":"type","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"type_identifier","named":true}]},"type":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]}}},{"type":"member_expression","named":true,"fields":{"object":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"import","named":true}]},"optional_chain":{"multiple":false,"required":false,"types":[{"type":"optional_chain","named":true}]},"property":{"multiple":false,"required":true,"types":[{"type":"private_property_identifier","named":true},{"type":"property_identifier","named":true}]}}},{"type":"meta_property","named":true,"fields":{}},{"type":"method_definition","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement_block","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"computed_property_name","named":true},{"type":"number","named":true},{"type":"private_property_identifier","named":true},{"type":"property_identifier","named":true},{"type":"string","named":true}]},"parameters":{"multiple":false,"required":true,"types":[{"type":"formal_parameters","named":true}]},"return_type":{"multiple":false,"required":false,"types":[{"type":"asserts_annotation","named":true},{"type":"type_annotation","named":true},{"type":"type_predicate_annotation","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]}},"children":{"multiple":true,"required":false,"types":[{"type":"accessibility_modifier","named":true},{"type":"override_modifier","named":true}]}},{"type":"method_signature","named":true,"fields":{"name":{"multiple":false,"required":true,"types":[{"type":"computed_property_name","named":true},{"type":"number","named":true},{"type":"private_property_identifier","named":true},{"type":"property_identifier","named":true},{"type":"string","named":true}]},"parameters":{"multiple":false,"required":true,"types":[{"type":"formal_parameters","named":true}]},"return_type":{"multiple":false,"required":false,"types":[{"type":"asserts_annotation","named":true},{"type":"type_annotation","named":true},{"type":"type_predicate_annotation","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]}},"children":{"multiple":true,"required":false,"types":[{"type":"accessibility_modifier","named":true},{"type":"override_modifier","named":true}]}},{"type":"module","named":true,"fields":{"body":{"multiple":false,"required":false,"types":[{"type":"statement_block","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true},{"type":"nested_identifier","named":true},{"type":"string","named":true}]}}},{"type":"named_imports","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"import_specifier","named":true}]}},{"type":"namespace_export","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true},{"type":"string","named":true}]}},{"type":"namespace_import","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true}]}},{"type":"nested_identifier","named":true,"fields":{"object":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true},{"type":"member_expression","named":true}]},"property":{"multiple":false,"required":true,"types":[{"type":"property_identifier","named":true}]}}},{"type":"nested_type_identifier","named":true,"fields":{"module":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true},{"type":"nested_identifier","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"type_identifier","named":true}]}}},{"type":"new_expression","named":true,"fields":{"arguments":{"multiple":false,"required":false,"types":[{"type":"arguments","named":true}]},"constructor":{"multiple":false,"required":true,"types":[{"type":"primary_expression","named":true}]},"type_arguments":{"multiple":false,"required":false,"types":[{"type":"type_arguments","named":true}]}}},{"type":"non_null_expression","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}},{"type":"object","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"method_definition","named":true},{"type":"pair","named":true},{"type":"shorthand_property_identifier","named":true},{"type":"spread_element","named":true}]}},{"type":"object_assignment_pattern","named":true,"fields":{"left":{"multiple":false,"required":true,"types":[{"type":"array_pattern","named":true},{"type":"object_pattern","named":true},{"type":"shorthand_property_identifier_pattern","named":true}]},"right":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}}},{"type":"object_pattern","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"object_assignment_pattern","named":true},{"type":"pair_pattern","named":true},{"type":"rest_pattern","named":true},{"type":"shorthand_property_identifier_pattern","named":true}]}},{"type":"object_type","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"call_signature","named":true},{"type":"construct_signature","named":true},{"type":"export_statement","named":true},{"type":"index_signature","named":true},{"type":"method_signature","named":true},{"type":"property_signature","named":true}]}},{"type":"omitting_type_annotation","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]}},{"type":"opting_type_annotation","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]}},{"type":"optional_chain","named":true,"fields":{}},{"type":"optional_parameter","named":true,"fields":{"decorator":{"multiple":true,"required":false,"types":[{"type":"decorator","named":true}]},"name":{"multiple":false,"required":false,"types":[{"type":"identifier","named":true}]},"pattern":{"multiple":false,"required":false,"types":[{"type":"pattern","named":true},{"type":"this","named":true}]},"type":{"multiple":false,"required":false,"types":[{"type":"type_annotation","named":true}]},"value":{"multiple":false,"required":false,"types":[{"type":"expression","named":true}]}},"children":{"multiple":true,"required":false,"types":[{"type":"accessibility_modifier","named":true},{"type":"override_modifier","named":true}]}},{"type":"optional_type","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]}},{"type":"override_modifier","named":true,"fields":{}},{"type":"pair","named":true,"fields":{"key":{"multiple":false,"required":true,"types":[{"type":"computed_property_name","named":true},{"type":"number","named":true},{"type":"private_property_identifier","named":true},{"type":"property_identifier","named":true},{"type":"string","named":true}]},"value":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}}},{"type":"pair_pattern","named":true,"fields":{"key":{"multiple":false,"required":true,"types":[{"type":"computed_property_name","named":true},{"type":"number","named":true},{"type":"private_property_identifier","named":true},{"type":"property_identifier","named":true},{"type":"string","named":true}]},"value":{"multiple":false,"required":true,"types":[{"type":"assignment_pattern","named":true},{"type":"pattern","named":true}]}}},{"type":"parenthesized_expression","named":true,"fields":{"type":{"multiple":false,"required":false,"types":[{"type":"type_annotation","named":true}]}},"children":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"sequence_expression","named":true}]}},{"type":"parenthesized_type","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]}},{"type":"predefined_type","named":true,"fields":{}},{"type":"program","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"hash_bang_line","named":true},{"type":"statement","named":true}]}},{"type":"property_signature","named":true,"fields":{"name":{"multiple":false,"required":true,"types":[{"type":"computed_property_name","named":true},{"type":"number","named":true},{"type":"private_property_identifier","named":true},{"type":"property_identifier","named":true},{"type":"string","named":true}]},"type":{"multiple":false,"required":false,"types":[{"type":"type_annotation","named":true}]}},"children":{"multiple":true,"required":false,"types":[{"type":"accessibility_modifier","named":true},{"type":"override_modifier","named":true}]}},{"type":"public_field_definition","named":true,"fields":{"decorator":{"multiple":true,"required":false,"types":[{"type":"decorator","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"computed_property_name","named":true},{"type":"number","named":true},{"type":"private_property_identifier","named":true},{"type":"property_identifier","named":true},{"type":"string","named":true}]},"type":{"multiple":false,"required":false,"types":[{"type":"type_annotation","named":true}]},"value":{"multiple":false,"required":false,"types":[{"type":"expression","named":true}]}},"children":{"multiple":true,"required":false,"types":[{"type":"accessibility_modifier","named":true},{"type":"override_modifier","named":true}]}},{"type":"readonly_type","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]}},{"type":"regex","named":true,"fields":{"flags":{"multiple":false,"required":false,"types":[{"type":"regex_flags","named":true}]},"pattern":{"multiple":false,"required":true,"types":[{"type":"regex_pattern","named":true}]}}},{"type":"required_parameter","named":true,"fields":{"decorator":{"multiple":true,"required":false,"types":[{"type":"decorator","named":true}]},"name":{"multiple":false,"required":false,"types":[{"type":"identifier","named":true},{"type":"rest_pattern","named":true}]},"pattern":{"multiple":false,"required":false,"types":[{"type":"pattern","named":true},{"type":"this","named":true}]},"type":{"multiple":false,"required":false,"types":[{"type":"type_annotation","named":true}]},"value":{"multiple":false,"required":false,"types":[{"type":"expression","named":true}]}},"children":{"multiple":true,"required":false,"types":[{"type":"accessibility_modifier","named":true},{"type":"override_modifier","named":true}]}},{"type":"rest_pattern","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"array_pattern","named":true},{"type":"identifier","named":true},{"type":"member_expression","named":true},{"type":"non_null_expression","named":true},{"type":"object_pattern","named":true},{"type":"subscript_expression","named":true},{"type":"undefined","named":true}]}},{"type":"rest_type","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]}},{"type":"return_statement","named":true,"fields":{},"children":{"multiple":false,"required":false,"types":[{"type":"expression","named":true},{"type":"sequence_expression","named":true}]}},{"type":"satisfies_expression","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"expression","named":true},{"type":"type","named":true}]}},{"type":"sequence_expression","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"expression","named":true}]}},{"type":"spread_element","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}},{"type":"statement_block","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"statement","named":true}]}},{"type":"string","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"escape_sequence","named":true},{"type":"html_character_reference","named":true},{"type":"string_fragment","named":true}]}},{"type":"subscript_expression","named":true,"fields":{"index":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"number","named":true},{"type":"predefined_type","named":true},{"type":"sequence_expression","named":true},{"type":"string","named":true}]},"object":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]},"optional_chain":{"multiple":false,"required":false,"types":[{"type":"optional_chain","named":true}]}}},{"type":"switch_body","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"switch_case","named":true},{"type":"switch_default","named":true}]}},{"type":"switch_case","named":true,"fields":{"body":{"multiple":true,"required":false,"types":[{"type":"statement","named":true}]},"value":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"sequence_expression","named":true}]}}},{"type":"switch_default","named":true,"fields":{"body":{"multiple":true,"required":false,"types":[{"type":"statement","named":true}]}}},{"type":"switch_statement","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"switch_body","named":true}]},"value":{"multiple":false,"required":true,"types":[{"type":"parenthesized_expression","named":true}]}}},{"type":"template_literal_type","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"string_fragment","named":true},{"type":"template_type","named":true}]}},{"type":"template_string","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"escape_sequence","named":true},{"type":"string_fragment","named":true},{"type":"template_substitution","named":true}]}},{"type":"template_substitution","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"sequence_expression","named":true}]}},{"type":"template_type","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"infer_type","named":true},{"type":"primary_type","named":true}]}},{"type":"ternary_expression","named":true,"fields":{"alternative":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]},"condition":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]},"consequence":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}}},{"type":"throw_statement","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"sequence_expression","named":true}]}},{"type":"try_statement","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement_block","named":true}]},"finalizer":{"multiple":false,"required":false,"types":[{"type":"finally_clause","named":true}]},"handler":{"multiple":false,"required":false,"types":[{"type":"catch_clause","named":true}]}}},{"type":"tuple_type","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"optional_parameter","named":true},{"type":"optional_type","named":true},{"type":"required_parameter","named":true},{"type":"rest_type","named":true},{"type":"type","named":true}]}},{"type":"type_alias_declaration","named":true,"fields":{"name":{"multiple":false,"required":true,"types":[{"type":"type_identifier","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]},"value":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]}}},{"type":"type_annotation","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]}},{"type":"type_arguments","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"type","named":true}]}},{"type":"type_assertion","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"expression","named":true},{"type":"type_arguments","named":true}]}},{"type":"type_parameter","named":true,"fields":{"constraint":{"multiple":false,"required":false,"types":[{"type":"constraint","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"type_identifier","named":true}]},"value":{"multiple":false,"required":false,"types":[{"type":"default_type","named":true}]}}},{"type":"type_parameters","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"type_parameter","named":true}]}},{"type":"type_predicate","named":true,"fields":{"name":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true},{"type":"this","named":true}]},"type":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]}}},{"type":"type_predicate_annotation","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"type_predicate","named":true}]}},{"type":"type_query","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"call_expression","named":true},{"type":"identifier","named":true},{"type":"instantiation_expression","named":true},{"type":"member_expression","named":true},{"type":"subscript_expression","named":true},{"type":"this","named":true}]}},{"type":"unary_expression","named":true,"fields":{"argument":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"number","named":true}]},"operator":{"multiple":false,"required":true,"types":[{"type":"!","named":false},{"type":"+","named":false},{"type":"-","named":false},{"type":"delete","named":false},{"type":"typeof","named":false},{"type":"void","named":false},{"type":"~","named":false}]}}},{"type":"union_type","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"type","named":true}]}},{"type":"update_expression","named":true,"fields":{"argument":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]},"operator":{"multiple":false,"required":true,"types":[{"type":"++","named":false},{"type":"--","named":false}]}}},{"type":"variable_declaration","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"variable_declarator","named":true}]}},{"type":"variable_declarator","named":true,"fields":{"name":{"multiple":false,"required":true,"types":[{"type":"array_pattern","named":true},{"type":"identifier","named":true},{"type":"object_pattern","named":true}]},"type":{"multiple":false,"required":false,"types":[{"type":"type_annotation","named":true}]},"value":{"multiple":false,"required":false,"types":[{"type":"expression","named":true}]}}},{"type":"while_statement","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement","named":true}]},"condition":{"multiple":false,"required":true,"types":[{"type":"parenthesized_expression","named":true}]}}},{"type":"with_statement","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement","named":true}]},"object":{"multiple":false,"required":true,"types":[{"type":"parenthesized_expression","named":true}]}}},{"type":"yield_expression","named":true,"fields":{},"children":{"multiple":false,"required":false,"types":[{"type":"expression","named":true}]}},{"type":"!","named":false},{"type":"!=","named":false},{"type":"!==","named":false},{"type":"\\"","named":false},{"type":"${","named":false},{"type":"%","named":false},{"type":"%=","named":false},{"type":"&","named":false},{"type":"&&","named":false},{"type":"&&=","named":false},{"type":"&=","named":false},{"type":"\'","named":false},{"type":"(","named":false},{"type":")","named":false},{"type":"*","named":false},{"type":"**","named":false},{"type":"**=","named":false},{"type":"*=","named":false},{"type":"+","named":false},{"type":"++","named":false},{"type":"+=","named":false},{"type":"+?:","named":false},{"type":",","named":false},{"type":"-","named":false},{"type":"--","named":false},{"type":"-=","named":false},{"type":"-?:","named":false},{"type":".","named":false},{"type":"...","named":false},{"type":"/","named":false},{"type":"/=","named":false},{"type":"/>","named":false},{"type":":","named":false},{"type":";","named":false},{"type":"<","named":false},{"type":"</","named":false},{"type":"<<","named":false},{"type":"<<=","named":false},{"type":"<=","named":false},{"type":"=","named":false},{"type":"==","named":false},{"type":"===","named":false},{"type":"=>","named":false},{"type":">","named":false},{"type":">=","named":false},{"type":">>","named":false},{"type":">>=","named":false},{"type":">>>","named":false},{"type":">>>=","named":false},{"type":"?","named":false},{"type":"?.","named":false},{"type":"?:","named":false},{"type":"??","named":false},{"type":"??=","named":false},{"type":"@","named":false},{"type":"[","named":false},{"type":"]","named":false},{"type":"^","named":false},{"type":"^=","named":false},{"type":"`","named":false},{"type":"abstract","named":false},{"type":"accessor","named":false},{"type":"any","named":false},{"type":"as","named":false},{"type":"asserts","named":false},{"type":"async","named":false},{"type":"await","named":false},{"type":"boolean","named":false},{"type":"break","named":false},{"type":"case","named":false},{"type":"catch","named":false},{"type":"class","named":false},{"type":"comment","named":true},{"type":"const","named":false},{"type":"continue","named":false},{"type":"debugger","named":false},{"type":"declare","named":false},{"type":"default","named":false},{"type":"delete","named":false},{"type":"do","named":false},{"type":"else","named":false},{"type":"enum","named":false},{"type":"escape_sequence","named":true},{"type":"export","named":false},{"type":"extends","named":false},{"type":"false","named":true},{"type":"finally","named":false},{"type":"for","named":false},{"type":"from","named":false},{"type":"function","named":false},{"type":"get","named":false},{"type":"glimmer_closing_tag","named":true},{"type":"glimmer_opening_tag","named":true},{"type":"global","named":false},{"type":"hash_bang_line","named":true},{"type":"html_character_reference","named":true},{"type":"html_comment","named":true},{"type":"if","named":false},{"type":"implements","named":false},{"type":"import","named":false},{"type":"in","named":false},{"type":"infer","named":false},{"type":"instanceof","named":false},{"type":"interface","named":false},{"type":"is","named":false},{"type":"keyof","named":false},{"type":"let","named":false},{"type":"module","named":false},{"type":"namespace","named":false},{"type":"never","named":false},{"type":"new","named":false},{"type":"null","named":true},{"type":"number","named":true},{"type":"number","named":false},{"type":"object","named":false},{"type":"of","named":false},{"type":"override","named":false},{"type":"private","named":false},{"type":"private_property_identifier","named":true},{"type":"property_identifier","named":true},{"type":"protected","named":false},{"type":"public","named":false},{"type":"readonly","named":false},{"type":"regex_flags","named":true},{"type":"regex_pattern","named":true},{"type":"require","named":false},{"type":"return","named":false},{"type":"satisfies","named":false},{"type":"set","named":false},{"type":"shorthand_property_identifier","named":true},{"type":"shorthand_property_identifier_pattern","named":true},{"type":"statement_identifier","named":true},{"type":"static","named":false},{"type":"string","named":false},{"type":"string_fragment","named":true},{"type":"super","named":true},{"type":"switch","named":false},{"type":"symbol","named":false},{"type":"target","named":false},{"type":"this","named":true},{"type":"this_type","named":true},{"type":"throw","named":false},{"type":"true","named":true},{"type":"try","named":false},{"type":"type","named":false},{"type":"type_identifier","named":true},{"type":"typeof","named":false},{"type":"undefined","named":true},{"type":"unique symbol","named":false},{"type":"unknown","named":false},{"type":"using","named":false},{"type":"var","named":false},{"type":"void","named":false},{"type":"while","named":false},{"type":"with","named":false},{"type":"yield","named":false},{"type":"{","named":false},{"type":"{|","named":false},{"type":"|","named":false},{"type":"|=","named":false},{"type":"||","named":false},{"type":"||=","named":false},{"type":"|}","named":false},{"type":"}","named":false},{"type":"~","named":false}]');
+
+/***/ }),
+/* 23 */
+/***/ ((module) => {
+
+"use strict";
+module.exports = /*#__PURE__*/JSON.parse('[{"type":"declaration","named":true,"subtypes":[{"type":"abstract_class_declaration","named":true},{"type":"ambient_declaration","named":true},{"type":"class_declaration","named":true},{"type":"enum_declaration","named":true},{"type":"function_declaration","named":true},{"type":"function_signature","named":true},{"type":"generator_function_declaration","named":true},{"type":"import_alias","named":true},{"type":"interface_declaration","named":true},{"type":"internal_module","named":true},{"type":"lexical_declaration","named":true},{"type":"module","named":true},{"type":"type_alias_declaration","named":true},{"type":"variable_declaration","named":true}]},{"type":"expression","named":true,"subtypes":[{"type":"as_expression","named":true},{"type":"assignment_expression","named":true},{"type":"augmented_assignment_expression","named":true},{"type":"await_expression","named":true},{"type":"binary_expression","named":true},{"type":"glimmer_template","named":true},{"type":"instantiation_expression","named":true},{"type":"internal_module","named":true},{"type":"jsx_element","named":true},{"type":"jsx_self_closing_element","named":true},{"type":"new_expression","named":true},{"type":"primary_expression","named":true},{"type":"satisfies_expression","named":true},{"type":"ternary_expression","named":true},{"type":"unary_expression","named":true},{"type":"update_expression","named":true},{"type":"yield_expression","named":true}]},{"type":"pattern","named":true,"subtypes":[{"type":"array_pattern","named":true},{"type":"identifier","named":true},{"type":"member_expression","named":true},{"type":"non_null_expression","named":true},{"type":"object_pattern","named":true},{"type":"rest_pattern","named":true},{"type":"subscript_expression","named":true},{"type":"undefined","named":true}]},{"type":"primary_expression","named":true,"subtypes":[{"type":"array","named":true},{"type":"arrow_function","named":true},{"type":"call_expression","named":true},{"type":"class","named":true},{"type":"false","named":true},{"type":"function_expression","named":true},{"type":"generator_function","named":true},{"type":"identifier","named":true},{"type":"member_expression","named":true},{"type":"meta_property","named":true},{"type":"non_null_expression","named":true},{"type":"null","named":true},{"type":"number","named":true},{"type":"object","named":true},{"type":"parenthesized_expression","named":true},{"type":"regex","named":true},{"type":"string","named":true},{"type":"subscript_expression","named":true},{"type":"super","named":true},{"type":"template_string","named":true},{"type":"this","named":true},{"type":"true","named":true},{"type":"undefined","named":true}]},{"type":"primary_type","named":true,"subtypes":[{"type":"array_type","named":true},{"type":"conditional_type","named":true},{"type":"const","named":false},{"type":"existential_type","named":true},{"type":"flow_maybe_type","named":true},{"type":"generic_type","named":true},{"type":"index_type_query","named":true},{"type":"intersection_type","named":true},{"type":"literal_type","named":true},{"type":"lookup_type","named":true},{"type":"nested_type_identifier","named":true},{"type":"object_type","named":true},{"type":"parenthesized_type","named":true},{"type":"predefined_type","named":true},{"type":"template_literal_type","named":true},{"type":"this_type","named":true},{"type":"tuple_type","named":true},{"type":"type_identifier","named":true},{"type":"type_query","named":true},{"type":"union_type","named":true}]},{"type":"statement","named":true,"subtypes":[{"type":"break_statement","named":true},{"type":"continue_statement","named":true},{"type":"debugger_statement","named":true},{"type":"declaration","named":true},{"type":"do_statement","named":true},{"type":"empty_statement","named":true},{"type":"export_statement","named":true},{"type":"expression_statement","named":true},{"type":"for_in_statement","named":true},{"type":"for_statement","named":true},{"type":"if_statement","named":true},{"type":"import_statement","named":true},{"type":"labeled_statement","named":true},{"type":"return_statement","named":true},{"type":"statement_block","named":true},{"type":"switch_statement","named":true},{"type":"throw_statement","named":true},{"type":"try_statement","named":true},{"type":"while_statement","named":true},{"type":"with_statement","named":true}]},{"type":"type","named":true,"subtypes":[{"type":"call_expression","named":true},{"type":"constructor_type","named":true},{"type":"function_type","named":true},{"type":"infer_type","named":true},{"type":"member_expression","named":true},{"type":"primary_type","named":true},{"type":"readonly_type","named":true}]},{"type":"abstract_class_declaration","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"class_body","named":true}]},"decorator":{"multiple":true,"required":false,"types":[{"type":"decorator","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"type_identifier","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]}},"children":{"multiple":false,"required":false,"types":[{"type":"class_heritage","named":true}]}},{"type":"abstract_method_signature","named":true,"fields":{"name":{"multiple":false,"required":true,"types":[{"type":"computed_property_name","named":true},{"type":"number","named":true},{"type":"private_property_identifier","named":true},{"type":"property_identifier","named":true},{"type":"string","named":true}]},"parameters":{"multiple":false,"required":true,"types":[{"type":"formal_parameters","named":true}]},"return_type":{"multiple":false,"required":false,"types":[{"type":"asserts_annotation","named":true},{"type":"type_annotation","named":true},{"type":"type_predicate_annotation","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]}},"children":{"multiple":true,"required":false,"types":[{"type":"accessibility_modifier","named":true},{"type":"override_modifier","named":true}]}},{"type":"accessibility_modifier","named":true,"fields":{}},{"type":"adding_type_annotation","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]}},{"type":"ambient_declaration","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"declaration","named":true},{"type":"property_identifier","named":true},{"type":"statement_block","named":true},{"type":"type","named":true}]}},{"type":"arguments","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"expression","named":true},{"type":"spread_element","named":true}]}},{"type":"array","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"expression","named":true},{"type":"spread_element","named":true}]}},{"type":"array_pattern","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"assignment_pattern","named":true},{"type":"pattern","named":true}]}},{"type":"array_type","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"primary_type","named":true}]}},{"type":"arrow_function","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"statement_block","named":true}]},"parameter":{"multiple":false,"required":false,"types":[{"type":"identifier","named":true}]},"parameters":{"multiple":false,"required":false,"types":[{"type":"formal_parameters","named":true}]},"return_type":{"multiple":false,"required":false,"types":[{"type":"asserts_annotation","named":true},{"type":"type_annotation","named":true},{"type":"type_predicate_annotation","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]}}},{"type":"as_expression","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"expression","named":true},{"type":"type","named":true}]}},{"type":"asserts","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true},{"type":"this","named":true},{"type":"type_predicate","named":true}]}},{"type":"asserts_annotation","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"asserts","named":true}]}},{"type":"assignment_expression","named":true,"fields":{"left":{"multiple":false,"required":true,"types":[{"type":"array_pattern","named":true},{"type":"identifier","named":true},{"type":"member_expression","named":true},{"type":"non_null_expression","named":true},{"type":"object_pattern","named":true},{"type":"parenthesized_expression","named":true},{"type":"subscript_expression","named":true},{"type":"undefined","named":true}]},"right":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}}},{"type":"assignment_pattern","named":true,"fields":{"left":{"multiple":false,"required":true,"types":[{"type":"pattern","named":true}]},"right":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}}},{"type":"augmented_assignment_expression","named":true,"fields":{"left":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true},{"type":"member_expression","named":true},{"type":"non_null_expression","named":true},{"type":"parenthesized_expression","named":true},{"type":"subscript_expression","named":true}]},"operator":{"multiple":false,"required":true,"types":[{"type":"%=","named":false},{"type":"&&=","named":false},{"type":"&=","named":false},{"type":"**=","named":false},{"type":"*=","named":false},{"type":"+=","named":false},{"type":"-=","named":false},{"type":"/=","named":false},{"type":"<<=","named":false},{"type":">>=","named":false},{"type":">>>=","named":false},{"type":"??=","named":false},{"type":"^=","named":false},{"type":"|=","named":false},{"type":"||=","named":false}]},"right":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}}},{"type":"await_expression","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}},{"type":"binary_expression","named":true,"fields":{"left":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"private_property_identifier","named":true}]},"operator":{"multiple":false,"required":true,"types":[{"type":"!=","named":false},{"type":"!==","named":false},{"type":"%","named":false},{"type":"&","named":false},{"type":"&&","named":false},{"type":"*","named":false},{"type":"**","named":false},{"type":"+","named":false},{"type":"-","named":false},{"type":"/","named":false},{"type":"<","named":false},{"type":"<<","named":false},{"type":"<=","named":false},{"type":"==","named":false},{"type":"===","named":false},{"type":">","named":false},{"type":">=","named":false},{"type":">>","named":false},{"type":">>>","named":false},{"type":"??","named":false},{"type":"^","named":false},{"type":"in","named":false},{"type":"instanceof","named":false},{"type":"|","named":false},{"type":"||","named":false}]},"right":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}}},{"type":"break_statement","named":true,"fields":{"label":{"multiple":false,"required":false,"types":[{"type":"statement_identifier","named":true}]}}},{"type":"call_expression","named":true,"fields":{"arguments":{"multiple":false,"required":true,"types":[{"type":"arguments","named":true},{"type":"template_string","named":true}]},"function":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"import","named":true}]},"type_arguments":{"multiple":false,"required":false,"types":[{"type":"type_arguments","named":true}]}}},{"type":"call_signature","named":true,"fields":{"parameters":{"multiple":false,"required":true,"types":[{"type":"formal_parameters","named":true}]},"return_type":{"multiple":false,"required":false,"types":[{"type":"asserts_annotation","named":true},{"type":"type_annotation","named":true},{"type":"type_predicate_annotation","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]}}},{"type":"catch_clause","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement_block","named":true}]},"parameter":{"multiple":false,"required":false,"types":[{"type":"array_pattern","named":true},{"type":"identifier","named":true},{"type":"object_pattern","named":true}]},"type":{"multiple":false,"required":false,"types":[{"type":"type_annotation","named":true}]}}},{"type":"class","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"class_body","named":true}]},"decorator":{"multiple":true,"required":false,"types":[{"type":"decorator","named":true}]},"name":{"multiple":false,"required":false,"types":[{"type":"type_identifier","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]}},"children":{"multiple":false,"required":false,"types":[{"type":"class_heritage","named":true}]}},{"type":"class_body","named":true,"fields":{"decorator":{"multiple":true,"required":false,"types":[{"type":"decorator","named":true}]}},"children":{"multiple":true,"required":false,"types":[{"type":"abstract_method_signature","named":true},{"type":"class_static_block","named":true},{"type":"index_signature","named":true},{"type":"method_definition","named":true},{"type":"method_signature","named":true},{"type":"public_field_definition","named":true}]}},{"type":"class_declaration","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"class_body","named":true}]},"decorator":{"multiple":true,"required":false,"types":[{"type":"decorator","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"type_identifier","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]}},"children":{"multiple":false,"required":false,"types":[{"type":"class_heritage","named":true}]}},{"type":"class_heritage","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"extends_clause","named":true},{"type":"implements_clause","named":true}]}},{"type":"class_static_block","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement_block","named":true}]}}},{"type":"computed_property_name","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}},{"type":"conditional_type","named":true,"fields":{"alternative":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]},"consequence":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]},"left":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]},"right":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]}}},{"type":"constraint","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]}},{"type":"construct_signature","named":true,"fields":{"parameters":{"multiple":false,"required":true,"types":[{"type":"formal_parameters","named":true}]},"type":{"multiple":false,"required":false,"types":[{"type":"type_annotation","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]}}},{"type":"constructor_type","named":true,"fields":{"parameters":{"multiple":false,"required":true,"types":[{"type":"formal_parameters","named":true}]},"type":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]}}},{"type":"continue_statement","named":true,"fields":{"label":{"multiple":false,"required":false,"types":[{"type":"statement_identifier","named":true}]}}},{"type":"debugger_statement","named":true,"fields":{}},{"type":"decorator","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"call_expression","named":true},{"type":"identifier","named":true},{"type":"member_expression","named":true}]}},{"type":"default_type","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]}},{"type":"do_statement","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement","named":true}]},"condition":{"multiple":false,"required":true,"types":[{"type":"parenthesized_expression","named":true}]}}},{"type":"else_clause","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"statement","named":true}]}},{"type":"empty_statement","named":true,"fields":{}},{"type":"enum_assignment","named":true,"fields":{"name":{"multiple":false,"required":true,"types":[{"type":"computed_property_name","named":true},{"type":"number","named":true},{"type":"private_property_identifier","named":true},{"type":"property_identifier","named":true},{"type":"string","named":true}]},"value":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}}},{"type":"enum_body","named":true,"fields":{"name":{"multiple":true,"required":false,"types":[{"type":"computed_property_name","named":true},{"type":"number","named":true},{"type":"private_property_identifier","named":true},{"type":"property_identifier","named":true},{"type":"string","named":true}]}},"children":{"multiple":true,"required":false,"types":[{"type":"enum_assignment","named":true}]}},{"type":"enum_declaration","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"enum_body","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true}]}}},{"type":"existential_type","named":true,"fields":{}},{"type":"export_clause","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"export_specifier","named":true}]}},{"type":"export_specifier","named":true,"fields":{"alias":{"multiple":false,"required":false,"types":[{"type":"identifier","named":true},{"type":"string","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true},{"type":"string","named":true}]}}},{"type":"export_statement","named":true,"fields":{"declaration":{"multiple":false,"required":false,"types":[{"type":"declaration","named":true}]},"decorator":{"multiple":true,"required":false,"types":[{"type":"decorator","named":true}]},"source":{"multiple":false,"required":false,"types":[{"type":"string","named":true}]},"value":{"multiple":false,"required":false,"types":[{"type":"expression","named":true}]}},"children":{"multiple":false,"required":false,"types":[{"type":"export_clause","named":true},{"type":"expression","named":true},{"type":"identifier","named":true},{"type":"namespace_export","named":true}]}},{"type":"expression_statement","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"sequence_expression","named":true}]}},{"type":"extends_clause","named":true,"fields":{"type_arguments":{"multiple":true,"required":false,"types":[{"type":"type_arguments","named":true}]},"value":{"multiple":true,"required":true,"types":[{"type":"expression","named":true}]}}},{"type":"extends_type_clause","named":true,"fields":{"type":{"multiple":true,"required":true,"types":[{"type":"generic_type","named":true},{"type":"nested_type_identifier","named":true},{"type":"type_identifier","named":true}]}}},{"type":"finally_clause","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement_block","named":true}]}}},{"type":"flow_maybe_type","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"primary_type","named":true}]}},{"type":"for_in_statement","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement","named":true}]},"kind":{"multiple":false,"required":false,"types":[{"type":"const","named":false},{"type":"let","named":false},{"type":"var","named":false}]},"left":{"multiple":false,"required":true,"types":[{"type":"array_pattern","named":true},{"type":"identifier","named":true},{"type":"member_expression","named":true},{"type":"non_null_expression","named":true},{"type":"object_pattern","named":true},{"type":"parenthesized_expression","named":true},{"type":"subscript_expression","named":true},{"type":"undefined","named":true}]},"operator":{"multiple":false,"required":true,"types":[{"type":"in","named":false},{"type":"of","named":false}]},"right":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"sequence_expression","named":true}]},"value":{"multiple":false,"required":false,"types":[{"type":"expression","named":true}]}}},{"type":"for_statement","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement","named":true}]},"condition":{"multiple":false,"required":true,"types":[{"type":"empty_statement","named":true},{"type":"expression_statement","named":true}]},"increment":{"multiple":false,"required":false,"types":[{"type":"expression","named":true},{"type":"sequence_expression","named":true}]},"initializer":{"multiple":false,"required":true,"types":[{"type":"empty_statement","named":true},{"type":"expression_statement","named":true},{"type":"lexical_declaration","named":true},{"type":"variable_declaration","named":true}]}}},{"type":"formal_parameters","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"optional_parameter","named":true},{"type":"required_parameter","named":true}]}},{"type":"function_declaration","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement_block","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true}]},"parameters":{"multiple":false,"required":true,"types":[{"type":"formal_parameters","named":true}]},"return_type":{"multiple":false,"required":false,"types":[{"type":"asserts_annotation","named":true},{"type":"type_annotation","named":true},{"type":"type_predicate_annotation","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]}}},{"type":"function_expression","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement_block","named":true}]},"name":{"multiple":false,"required":false,"types":[{"type":"identifier","named":true}]},"parameters":{"multiple":false,"required":true,"types":[{"type":"formal_parameters","named":true}]},"return_type":{"multiple":false,"required":false,"types":[{"type":"asserts_annotation","named":true},{"type":"type_annotation","named":true},{"type":"type_predicate_annotation","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]}}},{"type":"function_signature","named":true,"fields":{"name":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true}]},"parameters":{"multiple":false,"required":true,"types":[{"type":"formal_parameters","named":true}]},"return_type":{"multiple":false,"required":false,"types":[{"type":"asserts_annotation","named":true},{"type":"type_annotation","named":true},{"type":"type_predicate_annotation","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]}}},{"type":"function_type","named":true,"fields":{"parameters":{"multiple":false,"required":true,"types":[{"type":"formal_parameters","named":true}]},"return_type":{"multiple":false,"required":true,"types":[{"type":"asserts","named":true},{"type":"type","named":true},{"type":"type_predicate","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]}}},{"type":"generator_function","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement_block","named":true}]},"name":{"multiple":false,"required":false,"types":[{"type":"identifier","named":true}]},"parameters":{"multiple":false,"required":true,"types":[{"type":"formal_parameters","named":true}]},"return_type":{"multiple":false,"required":false,"types":[{"type":"asserts_annotation","named":true},{"type":"type_annotation","named":true},{"type":"type_predicate_annotation","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]}}},{"type":"generator_function_declaration","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement_block","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true}]},"parameters":{"multiple":false,"required":true,"types":[{"type":"formal_parameters","named":true}]},"return_type":{"multiple":false,"required":false,"types":[{"type":"asserts_annotation","named":true},{"type":"type_annotation","named":true},{"type":"type_predicate_annotation","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]}}},{"type":"generic_type","named":true,"fields":{"name":{"multiple":false,"required":true,"types":[{"type":"nested_type_identifier","named":true},{"type":"type_identifier","named":true}]},"type_arguments":{"multiple":false,"required":true,"types":[{"type":"type_arguments","named":true}]}}},{"type":"glimmer_template","named":true,"fields":{"close_tag":{"multiple":false,"required":true,"types":[{"type":"glimmer_closing_tag","named":true}]},"open_tag":{"multiple":false,"required":true,"types":[{"type":"glimmer_opening_tag","named":true}]}}},{"type":"identifier","named":true,"fields":{}},{"type":"if_statement","named":true,"fields":{"alternative":{"multiple":false,"required":false,"types":[{"type":"else_clause","named":true}]},"condition":{"multiple":false,"required":true,"types":[{"type":"parenthesized_expression","named":true}]},"consequence":{"multiple":false,"required":true,"types":[{"type":"statement","named":true}]}}},{"type":"implements_clause","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"type","named":true}]}},{"type":"import","named":true,"fields":{}},{"type":"import_alias","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"identifier","named":true},{"type":"nested_identifier","named":true}]}},{"type":"import_attribute","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"object","named":true}]}},{"type":"import_clause","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"identifier","named":true},{"type":"named_imports","named":true},{"type":"namespace_import","named":true}]}},{"type":"import_require_clause","named":true,"fields":{"source":{"multiple":false,"required":true,"types":[{"type":"string","named":true}]}},"children":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true}]}},{"type":"import_specifier","named":true,"fields":{"alias":{"multiple":false,"required":false,"types":[{"type":"identifier","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true},{"type":"string","named":true}]}}},{"type":"import_statement","named":true,"fields":{"source":{"multiple":false,"required":false,"types":[{"type":"string","named":true}]}},"children":{"multiple":true,"required":false,"types":[{"type":"import_attribute","named":true},{"type":"import_clause","named":true},{"type":"import_require_clause","named":true}]}},{"type":"index_signature","named":true,"fields":{"index_type":{"multiple":false,"required":false,"types":[{"type":"type","named":true}]},"name":{"multiple":false,"required":false,"types":[{"type":"identifier","named":true}]},"sign":{"multiple":false,"required":false,"types":[{"type":"+","named":false},{"type":"-","named":false}]},"type":{"multiple":false,"required":true,"types":[{"type":"adding_type_annotation","named":true},{"type":"omitting_type_annotation","named":true},{"type":"opting_type_annotation","named":true},{"type":"type_annotation","named":true}]}},"children":{"multiple":false,"required":false,"types":[{"type":"mapped_type_clause","named":true}]}},{"type":"index_type_query","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"primary_type","named":true}]}},{"type":"infer_type","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"type","named":true},{"type":"type_identifier","named":true}]}},{"type":"instantiation_expression","named":true,"fields":{"function":{"multiple":false,"required":false,"types":[{"type":"identifier","named":true},{"type":"import","named":true},{"type":"member_expression","named":true},{"type":"subscript_expression","named":true}]},"type_arguments":{"multiple":false,"required":true,"types":[{"type":"type_arguments","named":true}]}},"children":{"multiple":false,"required":false,"types":[{"type":"expression","named":true}]}},{"type":"interface_body","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"call_signature","named":true},{"type":"construct_signature","named":true},{"type":"export_statement","named":true},{"type":"index_signature","named":true},{"type":"method_signature","named":true},{"type":"property_signature","named":true}]}},{"type":"interface_declaration","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"interface_body","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"type_identifier","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]}},"children":{"multiple":false,"required":false,"types":[{"type":"extends_type_clause","named":true}]}},{"type":"internal_module","named":true,"fields":{"body":{"multiple":false,"required":false,"types":[{"type":"statement_block","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true},{"type":"nested_identifier","named":true},{"type":"string","named":true}]}}},{"type":"intersection_type","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"type","named":true}]}},{"type":"jsx_attribute","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"jsx_element","named":true},{"type":"jsx_expression","named":true},{"type":"jsx_namespace_name","named":true},{"type":"jsx_self_closing_element","named":true},{"type":"property_identifier","named":true},{"type":"string","named":true}]}},{"type":"jsx_closing_element","named":true,"fields":{"name":{"multiple":false,"required":false,"types":[{"type":"identifier","named":true},{"type":"jsx_namespace_name","named":true},{"type":"member_expression","named":true}]}}},{"type":"jsx_element","named":true,"fields":{"close_tag":{"multiple":false,"required":true,"types":[{"type":"jsx_closing_element","named":true}]},"open_tag":{"multiple":false,"required":true,"types":[{"type":"jsx_opening_element","named":true}]}},"children":{"multiple":true,"required":false,"types":[{"type":"html_character_reference","named":true},{"type":"jsx_element","named":true},{"type":"jsx_expression","named":true},{"type":"jsx_self_closing_element","named":true},{"type":"jsx_text","named":true}]}},{"type":"jsx_expression","named":true,"fields":{},"children":{"multiple":false,"required":false,"types":[{"type":"expression","named":true},{"type":"sequence_expression","named":true},{"type":"spread_element","named":true}]}},{"type":"jsx_namespace_name","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"identifier","named":true}]}},{"type":"jsx_opening_element","named":true,"fields":{"attribute":{"multiple":true,"required":false,"types":[{"type":"jsx_attribute","named":true},{"type":"jsx_expression","named":true}]},"name":{"multiple":false,"required":false,"types":[{"type":"identifier","named":true},{"type":"jsx_namespace_name","named":true},{"type":"member_expression","named":true}]},"type_arguments":{"multiple":false,"required":false,"types":[{"type":"type_arguments","named":true}]}}},{"type":"jsx_self_closing_element","named":true,"fields":{"attribute":{"multiple":true,"required":false,"types":[{"type":"jsx_attribute","named":true},{"type":"jsx_expression","named":true}]},"name":{"multiple":false,"required":false,"types":[{"type":"identifier","named":true},{"type":"jsx_namespace_name","named":true},{"type":"member_expression","named":true}]},"type_arguments":{"multiple":false,"required":false,"types":[{"type":"type_arguments","named":true}]}}},{"type":"jsx_text","named":true,"fields":{}},{"type":"labeled_statement","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement","named":true}]},"label":{"multiple":false,"required":true,"types":[{"type":"statement_identifier","named":true}]}}},{"type":"lexical_declaration","named":true,"fields":{"kind":{"multiple":false,"required":true,"types":[{"type":"const","named":false},{"type":"let","named":false}]}},"children":{"multiple":true,"required":true,"types":[{"type":"variable_declarator","named":true}]}},{"type":"literal_type","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"false","named":true},{"type":"null","named":true},{"type":"number","named":true},{"type":"string","named":true},{"type":"true","named":true},{"type":"unary_expression","named":true},{"type":"undefined","named":true}]}},{"type":"lookup_type","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"type","named":true}]}},{"type":"mapped_type_clause","named":true,"fields":{"alias":{"multiple":false,"required":false,"types":[{"type":"type","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"type_identifier","named":true}]},"type":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]}}},{"type":"member_expression","named":true,"fields":{"object":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"import","named":true}]},"optional_chain":{"multiple":false,"required":false,"types":[{"type":"optional_chain","named":true}]},"property":{"multiple":false,"required":true,"types":[{"type":"private_property_identifier","named":true},{"type":"property_identifier","named":true}]}}},{"type":"meta_property","named":true,"fields":{}},{"type":"method_definition","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement_block","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"computed_property_name","named":true},{"type":"number","named":true},{"type":"private_property_identifier","named":true},{"type":"property_identifier","named":true},{"type":"string","named":true}]},"parameters":{"multiple":false,"required":true,"types":[{"type":"formal_parameters","named":true}]},"return_type":{"multiple":false,"required":false,"types":[{"type":"asserts_annotation","named":true},{"type":"type_annotation","named":true},{"type":"type_predicate_annotation","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]}},"children":{"multiple":true,"required":false,"types":[{"type":"accessibility_modifier","named":true},{"type":"override_modifier","named":true}]}},{"type":"method_signature","named":true,"fields":{"name":{"multiple":false,"required":true,"types":[{"type":"computed_property_name","named":true},{"type":"number","named":true},{"type":"private_property_identifier","named":true},{"type":"property_identifier","named":true},{"type":"string","named":true}]},"parameters":{"multiple":false,"required":true,"types":[{"type":"formal_parameters","named":true}]},"return_type":{"multiple":false,"required":false,"types":[{"type":"asserts_annotation","named":true},{"type":"type_annotation","named":true},{"type":"type_predicate_annotation","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]}},"children":{"multiple":true,"required":false,"types":[{"type":"accessibility_modifier","named":true},{"type":"override_modifier","named":true}]}},{"type":"module","named":true,"fields":{"body":{"multiple":false,"required":false,"types":[{"type":"statement_block","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true},{"type":"nested_identifier","named":true},{"type":"string","named":true}]}}},{"type":"named_imports","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"import_specifier","named":true}]}},{"type":"namespace_export","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true},{"type":"string","named":true}]}},{"type":"namespace_import","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true}]}},{"type":"nested_identifier","named":true,"fields":{"object":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true},{"type":"member_expression","named":true}]},"property":{"multiple":false,"required":true,"types":[{"type":"property_identifier","named":true}]}}},{"type":"nested_type_identifier","named":true,"fields":{"module":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true},{"type":"nested_identifier","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"type_identifier","named":true}]}}},{"type":"new_expression","named":true,"fields":{"arguments":{"multiple":false,"required":false,"types":[{"type":"arguments","named":true}]},"constructor":{"multiple":false,"required":true,"types":[{"type":"primary_expression","named":true}]},"type_arguments":{"multiple":false,"required":false,"types":[{"type":"type_arguments","named":true}]}}},{"type":"non_null_expression","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}},{"type":"object","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"method_definition","named":true},{"type":"pair","named":true},{"type":"shorthand_property_identifier","named":true},{"type":"spread_element","named":true}]}},{"type":"object_assignment_pattern","named":true,"fields":{"left":{"multiple":false,"required":true,"types":[{"type":"array_pattern","named":true},{"type":"object_pattern","named":true},{"type":"shorthand_property_identifier_pattern","named":true}]},"right":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}}},{"type":"object_pattern","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"object_assignment_pattern","named":true},{"type":"pair_pattern","named":true},{"type":"rest_pattern","named":true},{"type":"shorthand_property_identifier_pattern","named":true}]}},{"type":"object_type","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"call_signature","named":true},{"type":"construct_signature","named":true},{"type":"export_statement","named":true},{"type":"index_signature","named":true},{"type":"method_signature","named":true},{"type":"property_signature","named":true}]}},{"type":"omitting_type_annotation","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]}},{"type":"opting_type_annotation","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]}},{"type":"optional_chain","named":true,"fields":{}},{"type":"optional_parameter","named":true,"fields":{"decorator":{"multiple":true,"required":false,"types":[{"type":"decorator","named":true}]},"name":{"multiple":false,"required":false,"types":[{"type":"identifier","named":true}]},"pattern":{"multiple":false,"required":false,"types":[{"type":"pattern","named":true},{"type":"this","named":true}]},"type":{"multiple":false,"required":false,"types":[{"type":"type_annotation","named":true}]},"value":{"multiple":false,"required":false,"types":[{"type":"expression","named":true}]}},"children":{"multiple":true,"required":false,"types":[{"type":"accessibility_modifier","named":true},{"type":"override_modifier","named":true}]}},{"type":"optional_type","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]}},{"type":"override_modifier","named":true,"fields":{}},{"type":"pair","named":true,"fields":{"key":{"multiple":false,"required":true,"types":[{"type":"computed_property_name","named":true},{"type":"number","named":true},{"type":"private_property_identifier","named":true},{"type":"property_identifier","named":true},{"type":"string","named":true}]},"value":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}}},{"type":"pair_pattern","named":true,"fields":{"key":{"multiple":false,"required":true,"types":[{"type":"computed_property_name","named":true},{"type":"number","named":true},{"type":"private_property_identifier","named":true},{"type":"property_identifier","named":true},{"type":"string","named":true}]},"value":{"multiple":false,"required":true,"types":[{"type":"assignment_pattern","named":true},{"type":"pattern","named":true}]}}},{"type":"parenthesized_expression","named":true,"fields":{"type":{"multiple":false,"required":false,"types":[{"type":"type_annotation","named":true}]}},"children":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"sequence_expression","named":true}]}},{"type":"parenthesized_type","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]}},{"type":"predefined_type","named":true,"fields":{}},{"type":"program","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"hash_bang_line","named":true},{"type":"statement","named":true}]}},{"type":"property_signature","named":true,"fields":{"name":{"multiple":false,"required":true,"types":[{"type":"computed_property_name","named":true},{"type":"number","named":true},{"type":"private_property_identifier","named":true},{"type":"property_identifier","named":true},{"type":"string","named":true}]},"type":{"multiple":false,"required":false,"types":[{"type":"type_annotation","named":true}]}},"children":{"multiple":true,"required":false,"types":[{"type":"accessibility_modifier","named":true},{"type":"override_modifier","named":true}]}},{"type":"public_field_definition","named":true,"fields":{"decorator":{"multiple":true,"required":false,"types":[{"type":"decorator","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"computed_property_name","named":true},{"type":"number","named":true},{"type":"private_property_identifier","named":true},{"type":"property_identifier","named":true},{"type":"string","named":true}]},"type":{"multiple":false,"required":false,"types":[{"type":"type_annotation","named":true}]},"value":{"multiple":false,"required":false,"types":[{"type":"expression","named":true}]}},"children":{"multiple":true,"required":false,"types":[{"type":"accessibility_modifier","named":true},{"type":"override_modifier","named":true}]}},{"type":"readonly_type","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]}},{"type":"regex","named":true,"fields":{"flags":{"multiple":false,"required":false,"types":[{"type":"regex_flags","named":true}]},"pattern":{"multiple":false,"required":true,"types":[{"type":"regex_pattern","named":true}]}}},{"type":"required_parameter","named":true,"fields":{"decorator":{"multiple":true,"required":false,"types":[{"type":"decorator","named":true}]},"name":{"multiple":false,"required":false,"types":[{"type":"identifier","named":true},{"type":"rest_pattern","named":true}]},"pattern":{"multiple":false,"required":false,"types":[{"type":"pattern","named":true},{"type":"this","named":true}]},"type":{"multiple":false,"required":false,"types":[{"type":"type_annotation","named":true}]},"value":{"multiple":false,"required":false,"types":[{"type":"expression","named":true}]}},"children":{"multiple":true,"required":false,"types":[{"type":"accessibility_modifier","named":true},{"type":"override_modifier","named":true}]}},{"type":"rest_pattern","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"array_pattern","named":true},{"type":"identifier","named":true},{"type":"member_expression","named":true},{"type":"non_null_expression","named":true},{"type":"object_pattern","named":true},{"type":"subscript_expression","named":true},{"type":"undefined","named":true}]}},{"type":"rest_type","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]}},{"type":"return_statement","named":true,"fields":{},"children":{"multiple":false,"required":false,"types":[{"type":"expression","named":true},{"type":"sequence_expression","named":true}]}},{"type":"satisfies_expression","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"expression","named":true},{"type":"type","named":true}]}},{"type":"sequence_expression","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"expression","named":true}]}},{"type":"spread_element","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}},{"type":"statement_block","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"statement","named":true}]}},{"type":"string","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"escape_sequence","named":true},{"type":"html_character_reference","named":true},{"type":"string_fragment","named":true}]}},{"type":"subscript_expression","named":true,"fields":{"index":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"number","named":true},{"type":"predefined_type","named":true},{"type":"sequence_expression","named":true},{"type":"string","named":true}]},"object":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]},"optional_chain":{"multiple":false,"required":false,"types":[{"type":"optional_chain","named":true}]}}},{"type":"switch_body","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"switch_case","named":true},{"type":"switch_default","named":true}]}},{"type":"switch_case","named":true,"fields":{"body":{"multiple":true,"required":false,"types":[{"type":"statement","named":true}]},"value":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"sequence_expression","named":true}]}}},{"type":"switch_default","named":true,"fields":{"body":{"multiple":true,"required":false,"types":[{"type":"statement","named":true}]}}},{"type":"switch_statement","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"switch_body","named":true}]},"value":{"multiple":false,"required":true,"types":[{"type":"parenthesized_expression","named":true}]}}},{"type":"template_literal_type","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"string_fragment","named":true},{"type":"template_type","named":true}]}},{"type":"template_string","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"escape_sequence","named":true},{"type":"string_fragment","named":true},{"type":"template_substitution","named":true}]}},{"type":"template_substitution","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"sequence_expression","named":true}]}},{"type":"template_type","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"infer_type","named":true},{"type":"primary_type","named":true}]}},{"type":"ternary_expression","named":true,"fields":{"alternative":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]},"condition":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]},"consequence":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}}},{"type":"throw_statement","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"sequence_expression","named":true}]}},{"type":"try_statement","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement_block","named":true}]},"finalizer":{"multiple":false,"required":false,"types":[{"type":"finally_clause","named":true}]},"handler":{"multiple":false,"required":false,"types":[{"type":"catch_clause","named":true}]}}},{"type":"tuple_type","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"optional_parameter","named":true},{"type":"optional_type","named":true},{"type":"required_parameter","named":true},{"type":"rest_type","named":true},{"type":"type","named":true}]}},{"type":"type_alias_declaration","named":true,"fields":{"name":{"multiple":false,"required":true,"types":[{"type":"type_identifier","named":true}]},"type_parameters":{"multiple":false,"required":false,"types":[{"type":"type_parameters","named":true}]},"value":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]}}},{"type":"type_annotation","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]}},{"type":"type_arguments","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"type","named":true}]}},{"type":"type_parameter","named":true,"fields":{"constraint":{"multiple":false,"required":false,"types":[{"type":"constraint","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"type_identifier","named":true}]},"value":{"multiple":false,"required":false,"types":[{"type":"default_type","named":true}]}}},{"type":"type_parameters","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"type_parameter","named":true}]}},{"type":"type_predicate","named":true,"fields":{"name":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true},{"type":"this","named":true}]},"type":{"multiple":false,"required":true,"types":[{"type":"type","named":true}]}}},{"type":"type_predicate_annotation","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"type_predicate","named":true}]}},{"type":"type_query","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"call_expression","named":true},{"type":"identifier","named":true},{"type":"instantiation_expression","named":true},{"type":"member_expression","named":true},{"type":"subscript_expression","named":true},{"type":"this","named":true}]}},{"type":"unary_expression","named":true,"fields":{"argument":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"number","named":true}]},"operator":{"multiple":false,"required":true,"types":[{"type":"!","named":false},{"type":"+","named":false},{"type":"-","named":false},{"type":"delete","named":false},{"type":"typeof","named":false},{"type":"void","named":false},{"type":"~","named":false}]}}},{"type":"union_type","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"type","named":true}]}},{"type":"update_expression","named":true,"fields":{"argument":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]},"operator":{"multiple":false,"required":true,"types":[{"type":"++","named":false},{"type":"--","named":false}]}}},{"type":"variable_declaration","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"variable_declarator","named":true}]}},{"type":"variable_declarator","named":true,"fields":{"name":{"multiple":false,"required":true,"types":[{"type":"array_pattern","named":true},{"type":"identifier","named":true},{"type":"object_pattern","named":true}]},"type":{"multiple":false,"required":false,"types":[{"type":"type_annotation","named":true}]},"value":{"multiple":false,"required":false,"types":[{"type":"expression","named":true}]}}},{"type":"while_statement","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement","named":true}]},"condition":{"multiple":false,"required":true,"types":[{"type":"parenthesized_expression","named":true}]}}},{"type":"with_statement","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement","named":true}]},"object":{"multiple":false,"required":true,"types":[{"type":"parenthesized_expression","named":true}]}}},{"type":"yield_expression","named":true,"fields":{},"children":{"multiple":false,"required":false,"types":[{"type":"expression","named":true}]}},{"type":"!","named":false},{"type":"!=","named":false},{"type":"!==","named":false},{"type":"\\"","named":false},{"type":"${","named":false},{"type":"%","named":false},{"type":"%=","named":false},{"type":"&","named":false},{"type":"&&","named":false},{"type":"&&=","named":false},{"type":"&=","named":false},{"type":"\'","named":false},{"type":"(","named":false},{"type":")","named":false},{"type":"*","named":false},{"type":"**","named":false},{"type":"**=","named":false},{"type":"*=","named":false},{"type":"+","named":false},{"type":"++","named":false},{"type":"+=","named":false},{"type":"+?:","named":false},{"type":",","named":false},{"type":"-","named":false},{"type":"--","named":false},{"type":"-=","named":false},{"type":"-?:","named":false},{"type":".","named":false},{"type":"...","named":false},{"type":"/","named":false},{"type":"/=","named":false},{"type":"/>","named":false},{"type":":","named":false},{"type":";","named":false},{"type":"<","named":false},{"type":"</","named":false},{"type":"<<","named":false},{"type":"<<=","named":false},{"type":"<=","named":false},{"type":"=","named":false},{"type":"==","named":false},{"type":"===","named":false},{"type":"=>","named":false},{"type":">","named":false},{"type":">=","named":false},{"type":">>","named":false},{"type":">>=","named":false},{"type":">>>","named":false},{"type":">>>=","named":false},{"type":"?","named":false},{"type":"?.","named":false},{"type":"?:","named":false},{"type":"??","named":false},{"type":"??=","named":false},{"type":"@","named":false},{"type":"[","named":false},{"type":"]","named":false},{"type":"^","named":false},{"type":"^=","named":false},{"type":"`","named":false},{"type":"abstract","named":false},{"type":"accessor","named":false},{"type":"any","named":false},{"type":"as","named":false},{"type":"asserts","named":false},{"type":"async","named":false},{"type":"await","named":false},{"type":"boolean","named":false},{"type":"break","named":false},{"type":"case","named":false},{"type":"catch","named":false},{"type":"class","named":false},{"type":"comment","named":true},{"type":"const","named":false},{"type":"continue","named":false},{"type":"debugger","named":false},{"type":"declare","named":false},{"type":"default","named":false},{"type":"delete","named":false},{"type":"do","named":false},{"type":"else","named":false},{"type":"enum","named":false},{"type":"escape_sequence","named":true},{"type":"export","named":false},{"type":"extends","named":false},{"type":"false","named":true},{"type":"finally","named":false},{"type":"for","named":false},{"type":"from","named":false},{"type":"function","named":false},{"type":"get","named":false},{"type":"glimmer_closing_tag","named":true},{"type":"glimmer_opening_tag","named":true},{"type":"global","named":false},{"type":"hash_bang_line","named":true},{"type":"html_character_reference","named":true},{"type":"html_comment","named":true},{"type":"if","named":false},{"type":"implements","named":false},{"type":"import","named":false},{"type":"in","named":false},{"type":"infer","named":false},{"type":"instanceof","named":false},{"type":"interface","named":false},{"type":"is","named":false},{"type":"keyof","named":false},{"type":"let","named":false},{"type":"module","named":false},{"type":"namespace","named":false},{"type":"never","named":false},{"type":"new","named":false},{"type":"null","named":true},{"type":"number","named":true},{"type":"number","named":false},{"type":"object","named":false},{"type":"of","named":false},{"type":"override","named":false},{"type":"private","named":false},{"type":"private_property_identifier","named":true},{"type":"property_identifier","named":true},{"type":"protected","named":false},{"type":"public","named":false},{"type":"readonly","named":false},{"type":"regex_flags","named":true},{"type":"regex_pattern","named":true},{"type":"require","named":false},{"type":"return","named":false},{"type":"satisfies","named":false},{"type":"set","named":false},{"type":"shorthand_property_identifier","named":true},{"type":"shorthand_property_identifier_pattern","named":true},{"type":"statement_identifier","named":true},{"type":"static","named":false},{"type":"string","named":false},{"type":"string_fragment","named":true},{"type":"super","named":true},{"type":"switch","named":false},{"type":"symbol","named":false},{"type":"target","named":false},{"type":"this","named":true},{"type":"this_type","named":true},{"type":"throw","named":false},{"type":"true","named":true},{"type":"try","named":false},{"type":"type","named":false},{"type":"type_identifier","named":true},{"type":"typeof","named":false},{"type":"undefined","named":true},{"type":"unique symbol","named":false},{"type":"unknown","named":false},{"type":"using","named":false},{"type":"var","named":false},{"type":"void","named":false},{"type":"while","named":false},{"type":"with","named":false},{"type":"yield","named":false},{"type":"{","named":false},{"type":"{|","named":false},{"type":"|","named":false},{"type":"|=","named":false},{"type":"||","named":false},{"type":"||=","named":false},{"type":"|}","named":false},{"type":"}","named":false},{"type":"~","named":false}]');
+
+/***/ }),
+/* 24 */
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+const root = (__webpack_require__(2).join)(__dirname, "..", "..");
+
+module.exports = __webpack_require__(17)(root);
+
+try {
+  module.exports.nodeTypeInfo = __webpack_require__(25);
+} catch (_) {}
+
+
+/***/ }),
+/* 25 */
+/***/ ((module) => {
+
+"use strict";
+module.exports = /*#__PURE__*/JSON.parse('[{"type":"declaration","named":true,"subtypes":[{"type":"class_declaration","named":true},{"type":"function_declaration","named":true},{"type":"generator_function_declaration","named":true},{"type":"lexical_declaration","named":true},{"type":"variable_declaration","named":true}]},{"type":"expression","named":true,"subtypes":[{"type":"assignment_expression","named":true},{"type":"augmented_assignment_expression","named":true},{"type":"await_expression","named":true},{"type":"binary_expression","named":true},{"type":"glimmer_template","named":true},{"type":"jsx_element","named":true},{"type":"jsx_self_closing_element","named":true},{"type":"new_expression","named":true},{"type":"primary_expression","named":true},{"type":"ternary_expression","named":true},{"type":"unary_expression","named":true},{"type":"update_expression","named":true},{"type":"yield_expression","named":true}]},{"type":"pattern","named":true,"subtypes":[{"type":"array_pattern","named":true},{"type":"identifier","named":true},{"type":"member_expression","named":true},{"type":"object_pattern","named":true},{"type":"rest_pattern","named":true},{"type":"subscript_expression","named":true},{"type":"undefined","named":true}]},{"type":"primary_expression","named":true,"subtypes":[{"type":"array","named":true},{"type":"arrow_function","named":true},{"type":"call_expression","named":true},{"type":"class","named":true},{"type":"false","named":true},{"type":"function_expression","named":true},{"type":"generator_function","named":true},{"type":"identifier","named":true},{"type":"member_expression","named":true},{"type":"meta_property","named":true},{"type":"null","named":true},{"type":"number","named":true},{"type":"object","named":true},{"type":"parenthesized_expression","named":true},{"type":"regex","named":true},{"type":"string","named":true},{"type":"subscript_expression","named":true},{"type":"super","named":true},{"type":"template_string","named":true},{"type":"this","named":true},{"type":"true","named":true},{"type":"undefined","named":true}]},{"type":"statement","named":true,"subtypes":[{"type":"break_statement","named":true},{"type":"continue_statement","named":true},{"type":"debugger_statement","named":true},{"type":"declaration","named":true},{"type":"do_statement","named":true},{"type":"empty_statement","named":true},{"type":"export_statement","named":true},{"type":"expression_statement","named":true},{"type":"for_in_statement","named":true},{"type":"for_statement","named":true},{"type":"if_statement","named":true},{"type":"import_statement","named":true},{"type":"labeled_statement","named":true},{"type":"return_statement","named":true},{"type":"statement_block","named":true},{"type":"switch_statement","named":true},{"type":"throw_statement","named":true},{"type":"try_statement","named":true},{"type":"while_statement","named":true},{"type":"with_statement","named":true}]},{"type":"arguments","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"expression","named":true},{"type":"spread_element","named":true}]}},{"type":"array","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"expression","named":true},{"type":"spread_element","named":true}]}},{"type":"array_pattern","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"assignment_pattern","named":true},{"type":"pattern","named":true}]}},{"type":"arrow_function","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"statement_block","named":true}]},"parameter":{"multiple":false,"required":false,"types":[{"type":"identifier","named":true}]},"parameters":{"multiple":false,"required":false,"types":[{"type":"formal_parameters","named":true}]}}},{"type":"assignment_expression","named":true,"fields":{"left":{"multiple":false,"required":true,"types":[{"type":"array_pattern","named":true},{"type":"identifier","named":true},{"type":"member_expression","named":true},{"type":"object_pattern","named":true},{"type":"parenthesized_expression","named":true},{"type":"subscript_expression","named":true},{"type":"undefined","named":true}]},"right":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}}},{"type":"assignment_pattern","named":true,"fields":{"left":{"multiple":false,"required":true,"types":[{"type":"pattern","named":true}]},"right":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}}},{"type":"augmented_assignment_expression","named":true,"fields":{"left":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true},{"type":"member_expression","named":true},{"type":"parenthesized_expression","named":true},{"type":"subscript_expression","named":true}]},"operator":{"multiple":false,"required":true,"types":[{"type":"%=","named":false},{"type":"&&=","named":false},{"type":"&=","named":false},{"type":"**=","named":false},{"type":"*=","named":false},{"type":"+=","named":false},{"type":"-=","named":false},{"type":"/=","named":false},{"type":"<<=","named":false},{"type":">>=","named":false},{"type":">>>=","named":false},{"type":"??=","named":false},{"type":"^=","named":false},{"type":"|=","named":false},{"type":"||=","named":false}]},"right":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}}},{"type":"await_expression","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}},{"type":"binary_expression","named":true,"fields":{"left":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"private_property_identifier","named":true}]},"operator":{"multiple":false,"required":true,"types":[{"type":"!=","named":false},{"type":"!==","named":false},{"type":"%","named":false},{"type":"&","named":false},{"type":"&&","named":false},{"type":"*","named":false},{"type":"**","named":false},{"type":"+","named":false},{"type":"-","named":false},{"type":"/","named":false},{"type":"<","named":false},{"type":"<<","named":false},{"type":"<=","named":false},{"type":"==","named":false},{"type":"===","named":false},{"type":">","named":false},{"type":">=","named":false},{"type":">>","named":false},{"type":">>>","named":false},{"type":"??","named":false},{"type":"^","named":false},{"type":"in","named":false},{"type":"instanceof","named":false},{"type":"|","named":false},{"type":"||","named":false}]},"right":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}}},{"type":"break_statement","named":true,"fields":{"label":{"multiple":false,"required":false,"types":[{"type":"statement_identifier","named":true}]}}},{"type":"call_expression","named":true,"fields":{"arguments":{"multiple":false,"required":true,"types":[{"type":"arguments","named":true},{"type":"template_string","named":true}]},"function":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"import","named":true}]},"optional_chain":{"multiple":false,"required":false,"types":[{"type":"optional_chain","named":true}]}}},{"type":"catch_clause","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement_block","named":true}]},"parameter":{"multiple":false,"required":false,"types":[{"type":"array_pattern","named":true},{"type":"identifier","named":true},{"type":"object_pattern","named":true}]}}},{"type":"class","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"class_body","named":true}]},"decorator":{"multiple":true,"required":false,"types":[{"type":"decorator","named":true}]},"name":{"multiple":false,"required":false,"types":[{"type":"identifier","named":true}]}},"children":{"multiple":false,"required":false,"types":[{"type":"class_heritage","named":true}]}},{"type":"class_body","named":true,"fields":{"member":{"multiple":true,"required":false,"types":[{"type":"class_static_block","named":true},{"type":"field_definition","named":true},{"type":"method_definition","named":true}]},"template":{"multiple":true,"required":false,"types":[{"type":"glimmer_template","named":true}]}}},{"type":"class_declaration","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"class_body","named":true}]},"decorator":{"multiple":true,"required":false,"types":[{"type":"decorator","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true}]}},"children":{"multiple":false,"required":false,"types":[{"type":"class_heritage","named":true}]}},{"type":"class_heritage","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}},{"type":"class_static_block","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement_block","named":true}]}}},{"type":"computed_property_name","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}},{"type":"continue_statement","named":true,"fields":{"label":{"multiple":false,"required":false,"types":[{"type":"statement_identifier","named":true}]}}},{"type":"debugger_statement","named":true,"fields":{}},{"type":"decorator","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"call_expression","named":true},{"type":"identifier","named":true},{"type":"member_expression","named":true}]}},{"type":"do_statement","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement","named":true}]},"condition":{"multiple":false,"required":true,"types":[{"type":"parenthesized_expression","named":true}]}}},{"type":"else_clause","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"statement","named":true}]}},{"type":"empty_statement","named":true,"fields":{}},{"type":"export_clause","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"export_specifier","named":true}]}},{"type":"export_specifier","named":true,"fields":{"alias":{"multiple":false,"required":false,"types":[{"type":"identifier","named":true},{"type":"string","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true},{"type":"string","named":true}]}}},{"type":"export_statement","named":true,"fields":{"declaration":{"multiple":false,"required":false,"types":[{"type":"declaration","named":true}]},"decorator":{"multiple":true,"required":false,"types":[{"type":"decorator","named":true}]},"source":{"multiple":false,"required":false,"types":[{"type":"string","named":true}]},"value":{"multiple":false,"required":false,"types":[{"type":"expression","named":true}]}},"children":{"multiple":false,"required":false,"types":[{"type":"export_clause","named":true},{"type":"namespace_export","named":true}]}},{"type":"expression_statement","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"sequence_expression","named":true}]}},{"type":"field_definition","named":true,"fields":{"decorator":{"multiple":true,"required":false,"types":[{"type":"decorator","named":true}]},"property":{"multiple":false,"required":true,"types":[{"type":"computed_property_name","named":true},{"type":"number","named":true},{"type":"private_property_identifier","named":true},{"type":"property_identifier","named":true},{"type":"string","named":true}]},"value":{"multiple":false,"required":false,"types":[{"type":"expression","named":true}]}}},{"type":"finally_clause","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement_block","named":true}]}}},{"type":"for_in_statement","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement","named":true}]},"kind":{"multiple":false,"required":false,"types":[{"type":"const","named":false},{"type":"let","named":false},{"type":"var","named":false}]},"left":{"multiple":false,"required":true,"types":[{"type":"array_pattern","named":true},{"type":"identifier","named":true},{"type":"member_expression","named":true},{"type":"object_pattern","named":true},{"type":"parenthesized_expression","named":true},{"type":"subscript_expression","named":true},{"type":"undefined","named":true}]},"operator":{"multiple":false,"required":true,"types":[{"type":"in","named":false},{"type":"of","named":false}]},"right":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"sequence_expression","named":true}]},"value":{"multiple":false,"required":false,"types":[{"type":"expression","named":true}]}}},{"type":"for_statement","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement","named":true}]},"condition":{"multiple":false,"required":true,"types":[{"type":"empty_statement","named":true},{"type":"expression_statement","named":true}]},"increment":{"multiple":false,"required":false,"types":[{"type":"expression","named":true},{"type":"sequence_expression","named":true}]},"initializer":{"multiple":false,"required":true,"types":[{"type":"empty_statement","named":true},{"type":"expression_statement","named":true},{"type":"lexical_declaration","named":true},{"type":"variable_declaration","named":true}]}}},{"type":"formal_parameters","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"assignment_pattern","named":true},{"type":"pattern","named":true}]}},{"type":"function_declaration","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement_block","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true}]},"parameters":{"multiple":false,"required":true,"types":[{"type":"formal_parameters","named":true}]}}},{"type":"function_expression","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement_block","named":true}]},"name":{"multiple":false,"required":false,"types":[{"type":"identifier","named":true}]},"parameters":{"multiple":false,"required":true,"types":[{"type":"formal_parameters","named":true}]}}},{"type":"generator_function","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement_block","named":true}]},"name":{"multiple":false,"required":false,"types":[{"type":"identifier","named":true}]},"parameters":{"multiple":false,"required":true,"types":[{"type":"formal_parameters","named":true}]}}},{"type":"generator_function_declaration","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement_block","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true}]},"parameters":{"multiple":false,"required":true,"types":[{"type":"formal_parameters","named":true}]}}},{"type":"glimmer_template","named":true,"fields":{"close_tag":{"multiple":false,"required":true,"types":[{"type":"glimmer_closing_tag","named":true}]},"open_tag":{"multiple":false,"required":true,"types":[{"type":"glimmer_opening_tag","named":true}]}}},{"type":"if_statement","named":true,"fields":{"alternative":{"multiple":false,"required":false,"types":[{"type":"else_clause","named":true}]},"condition":{"multiple":false,"required":true,"types":[{"type":"parenthesized_expression","named":true}]},"consequence":{"multiple":false,"required":true,"types":[{"type":"statement","named":true}]}}},{"type":"import","named":true,"fields":{}},{"type":"import_attribute","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"object","named":true}]}},{"type":"import_clause","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"identifier","named":true},{"type":"named_imports","named":true},{"type":"namespace_import","named":true}]}},{"type":"import_specifier","named":true,"fields":{"alias":{"multiple":false,"required":false,"types":[{"type":"identifier","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true},{"type":"string","named":true}]}}},{"type":"import_statement","named":true,"fields":{"source":{"multiple":false,"required":true,"types":[{"type":"string","named":true}]}},"children":{"multiple":true,"required":false,"types":[{"type":"import_attribute","named":true},{"type":"import_clause","named":true}]}},{"type":"jsx_attribute","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"jsx_element","named":true},{"type":"jsx_expression","named":true},{"type":"jsx_namespace_name","named":true},{"type":"jsx_self_closing_element","named":true},{"type":"property_identifier","named":true},{"type":"string","named":true}]}},{"type":"jsx_closing_element","named":true,"fields":{"name":{"multiple":false,"required":false,"types":[{"type":"identifier","named":true},{"type":"jsx_namespace_name","named":true},{"type":"member_expression","named":true}]}}},{"type":"jsx_element","named":true,"fields":{"close_tag":{"multiple":false,"required":true,"types":[{"type":"jsx_closing_element","named":true}]},"open_tag":{"multiple":false,"required":true,"types":[{"type":"jsx_opening_element","named":true}]}},"children":{"multiple":true,"required":false,"types":[{"type":"html_character_reference","named":true},{"type":"jsx_element","named":true},{"type":"jsx_expression","named":true},{"type":"jsx_self_closing_element","named":true},{"type":"jsx_text","named":true}]}},{"type":"jsx_expression","named":true,"fields":{},"children":{"multiple":false,"required":false,"types":[{"type":"expression","named":true},{"type":"sequence_expression","named":true},{"type":"spread_element","named":true}]}},{"type":"jsx_namespace_name","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"identifier","named":true}]}},{"type":"jsx_opening_element","named":true,"fields":{"attribute":{"multiple":true,"required":false,"types":[{"type":"jsx_attribute","named":true},{"type":"jsx_expression","named":true}]},"name":{"multiple":false,"required":false,"types":[{"type":"identifier","named":true},{"type":"jsx_namespace_name","named":true},{"type":"member_expression","named":true}]}}},{"type":"jsx_self_closing_element","named":true,"fields":{"attribute":{"multiple":true,"required":false,"types":[{"type":"jsx_attribute","named":true},{"type":"jsx_expression","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true},{"type":"jsx_namespace_name","named":true},{"type":"member_expression","named":true}]}}},{"type":"jsx_text","named":true,"fields":{}},{"type":"labeled_statement","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement","named":true}]},"label":{"multiple":false,"required":true,"types":[{"type":"statement_identifier","named":true}]}}},{"type":"lexical_declaration","named":true,"fields":{"kind":{"multiple":false,"required":true,"types":[{"type":"const","named":false},{"type":"let","named":false}]}},"children":{"multiple":true,"required":true,"types":[{"type":"variable_declarator","named":true}]}},{"type":"member_expression","named":true,"fields":{"object":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"import","named":true}]},"optional_chain":{"multiple":false,"required":false,"types":[{"type":"optional_chain","named":true}]},"property":{"multiple":false,"required":true,"types":[{"type":"private_property_identifier","named":true},{"type":"property_identifier","named":true}]}}},{"type":"meta_property","named":true,"fields":{}},{"type":"method_definition","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement_block","named":true}]},"decorator":{"multiple":true,"required":false,"types":[{"type":"decorator","named":true}]},"name":{"multiple":false,"required":true,"types":[{"type":"computed_property_name","named":true},{"type":"number","named":true},{"type":"private_property_identifier","named":true},{"type":"property_identifier","named":true},{"type":"string","named":true}]},"parameters":{"multiple":false,"required":true,"types":[{"type":"formal_parameters","named":true}]}}},{"type":"named_imports","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"import_specifier","named":true}]}},{"type":"namespace_export","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true},{"type":"string","named":true}]}},{"type":"namespace_import","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"identifier","named":true}]}},{"type":"new_expression","named":true,"fields":{"arguments":{"multiple":false,"required":false,"types":[{"type":"arguments","named":true}]},"constructor":{"multiple":false,"required":true,"types":[{"type":"new_expression","named":true},{"type":"primary_expression","named":true}]}}},{"type":"object","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"method_definition","named":true},{"type":"pair","named":true},{"type":"shorthand_property_identifier","named":true},{"type":"spread_element","named":true}]}},{"type":"object_assignment_pattern","named":true,"fields":{"left":{"multiple":false,"required":true,"types":[{"type":"array_pattern","named":true},{"type":"object_pattern","named":true},{"type":"shorthand_property_identifier_pattern","named":true}]},"right":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}}},{"type":"object_pattern","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"object_assignment_pattern","named":true},{"type":"pair_pattern","named":true},{"type":"rest_pattern","named":true},{"type":"shorthand_property_identifier_pattern","named":true}]}},{"type":"pair","named":true,"fields":{"key":{"multiple":false,"required":true,"types":[{"type":"computed_property_name","named":true},{"type":"number","named":true},{"type":"private_property_identifier","named":true},{"type":"property_identifier","named":true},{"type":"string","named":true}]},"value":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}}},{"type":"pair_pattern","named":true,"fields":{"key":{"multiple":false,"required":true,"types":[{"type":"computed_property_name","named":true},{"type":"number","named":true},{"type":"private_property_identifier","named":true},{"type":"property_identifier","named":true},{"type":"string","named":true}]},"value":{"multiple":false,"required":true,"types":[{"type":"assignment_pattern","named":true},{"type":"pattern","named":true}]}}},{"type":"parenthesized_expression","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"sequence_expression","named":true}]}},{"type":"program","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"hash_bang_line","named":true},{"type":"statement","named":true}]}},{"type":"regex","named":true,"fields":{"flags":{"multiple":false,"required":false,"types":[{"type":"regex_flags","named":true}]},"pattern":{"multiple":false,"required":true,"types":[{"type":"regex_pattern","named":true}]}}},{"type":"rest_pattern","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"array_pattern","named":true},{"type":"identifier","named":true},{"type":"member_expression","named":true},{"type":"object_pattern","named":true},{"type":"subscript_expression","named":true},{"type":"undefined","named":true}]}},{"type":"return_statement","named":true,"fields":{},"children":{"multiple":false,"required":false,"types":[{"type":"expression","named":true},{"type":"sequence_expression","named":true}]}},{"type":"sequence_expression","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"expression","named":true}]}},{"type":"spread_element","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}},{"type":"statement_block","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"statement","named":true}]}},{"type":"string","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"escape_sequence","named":true},{"type":"html_character_reference","named":true},{"type":"string_fragment","named":true}]}},{"type":"subscript_expression","named":true,"fields":{"index":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"sequence_expression","named":true}]},"object":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]},"optional_chain":{"multiple":false,"required":false,"types":[{"type":"optional_chain","named":true}]}}},{"type":"switch_body","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"switch_case","named":true},{"type":"switch_default","named":true}]}},{"type":"switch_case","named":true,"fields":{"body":{"multiple":true,"required":false,"types":[{"type":"statement","named":true}]},"value":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"sequence_expression","named":true}]}}},{"type":"switch_default","named":true,"fields":{"body":{"multiple":true,"required":false,"types":[{"type":"statement","named":true}]}}},{"type":"switch_statement","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"switch_body","named":true}]},"value":{"multiple":false,"required":true,"types":[{"type":"parenthesized_expression","named":true}]}}},{"type":"template_string","named":true,"fields":{},"children":{"multiple":true,"required":false,"types":[{"type":"escape_sequence","named":true},{"type":"string_fragment","named":true},{"type":"template_substitution","named":true}]}},{"type":"template_substitution","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"sequence_expression","named":true}]}},{"type":"ternary_expression","named":true,"fields":{"alternative":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]},"condition":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]},"consequence":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]}}},{"type":"throw_statement","named":true,"fields":{},"children":{"multiple":false,"required":true,"types":[{"type":"expression","named":true},{"type":"sequence_expression","named":true}]}},{"type":"try_statement","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement_block","named":true}]},"finalizer":{"multiple":false,"required":false,"types":[{"type":"finally_clause","named":true}]},"handler":{"multiple":false,"required":false,"types":[{"type":"catch_clause","named":true}]}}},{"type":"unary_expression","named":true,"fields":{"argument":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]},"operator":{"multiple":false,"required":true,"types":[{"type":"!","named":false},{"type":"+","named":false},{"type":"-","named":false},{"type":"delete","named":false},{"type":"typeof","named":false},{"type":"void","named":false},{"type":"~","named":false}]}}},{"type":"update_expression","named":true,"fields":{"argument":{"multiple":false,"required":true,"types":[{"type":"expression","named":true}]},"operator":{"multiple":false,"required":true,"types":[{"type":"++","named":false},{"type":"--","named":false}]}}},{"type":"variable_declaration","named":true,"fields":{},"children":{"multiple":true,"required":true,"types":[{"type":"variable_declarator","named":true}]}},{"type":"variable_declarator","named":true,"fields":{"name":{"multiple":false,"required":true,"types":[{"type":"array_pattern","named":true},{"type":"identifier","named":true},{"type":"object_pattern","named":true}]},"value":{"multiple":false,"required":false,"types":[{"type":"expression","named":true}]}}},{"type":"while_statement","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement","named":true}]},"condition":{"multiple":false,"required":true,"types":[{"type":"parenthesized_expression","named":true}]}}},{"type":"with_statement","named":true,"fields":{"body":{"multiple":false,"required":true,"types":[{"type":"statement","named":true}]},"object":{"multiple":false,"required":true,"types":[{"type":"parenthesized_expression","named":true}]}}},{"type":"yield_expression","named":true,"fields":{},"children":{"multiple":false,"required":false,"types":[{"type":"expression","named":true}]}},{"type":"!","named":false},{"type":"!=","named":false},{"type":"!==","named":false},{"type":"\\"","named":false},{"type":"${","named":false},{"type":"%","named":false},{"type":"%=","named":false},{"type":"&","named":false},{"type":"&&","named":false},{"type":"&&=","named":false},{"type":"&=","named":false},{"type":"\'","named":false},{"type":"(","named":false},{"type":")","named":false},{"type":"*","named":false},{"type":"**","named":false},{"type":"**=","named":false},{"type":"*=","named":false},{"type":"+","named":false},{"type":"++","named":false},{"type":"+=","named":false},{"type":",","named":false},{"type":"-","named":false},{"type":"--","named":false},{"type":"-=","named":false},{"type":".","named":false},{"type":"...","named":false},{"type":"/","named":false},{"type":"/=","named":false},{"type":"/>","named":false},{"type":":","named":false},{"type":";","named":false},{"type":"<","named":false},{"type":"</","named":false},{"type":"<<","named":false},{"type":"<<=","named":false},{"type":"<=","named":false},{"type":"=","named":false},{"type":"==","named":false},{"type":"===","named":false},{"type":"=>","named":false},{"type":">","named":false},{"type":">=","named":false},{"type":">>","named":false},{"type":">>=","named":false},{"type":">>>","named":false},{"type":">>>=","named":false},{"type":"?","named":false},{"type":"??","named":false},{"type":"??=","named":false},{"type":"@","named":false},{"type":"[","named":false},{"type":"]","named":false},{"type":"^","named":false},{"type":"^=","named":false},{"type":"`","named":false},{"type":"as","named":false},{"type":"async","named":false},{"type":"await","named":false},{"type":"break","named":false},{"type":"case","named":false},{"type":"catch","named":false},{"type":"class","named":false},{"type":"comment","named":true},{"type":"const","named":false},{"type":"continue","named":false},{"type":"debugger","named":false},{"type":"default","named":false},{"type":"delete","named":false},{"type":"do","named":false},{"type":"else","named":false},{"type":"escape_sequence","named":true},{"type":"export","named":false},{"type":"extends","named":false},{"type":"false","named":true},{"type":"finally","named":false},{"type":"for","named":false},{"type":"from","named":false},{"type":"function","named":false},{"type":"get","named":false},{"type":"glimmer_closing_tag","named":true},{"type":"glimmer_opening_tag","named":true},{"type":"hash_bang_line","named":true},{"type":"html_character_reference","named":true},{"type":"html_comment","named":true},{"type":"identifier","named":true},{"type":"if","named":false},{"type":"import","named":false},{"type":"in","named":false},{"type":"instanceof","named":false},{"type":"let","named":false},{"type":"new","named":false},{"type":"null","named":true},{"type":"number","named":true},{"type":"of","named":false},{"type":"optional_chain","named":true},{"type":"private_property_identifier","named":true},{"type":"property_identifier","named":true},{"type":"regex_flags","named":true},{"type":"regex_pattern","named":true},{"type":"return","named":false},{"type":"set","named":false},{"type":"shorthand_property_identifier","named":true},{"type":"shorthand_property_identifier_pattern","named":true},{"type":"statement_identifier","named":true},{"type":"static","named":false},{"type":"static get","named":false},{"type":"string_fragment","named":true},{"type":"super","named":true},{"type":"switch","named":false},{"type":"target","named":false},{"type":"this","named":true},{"type":"throw","named":false},{"type":"true","named":true},{"type":"try","named":false},{"type":"typeof","named":false},{"type":"undefined","named":true},{"type":"var","named":false},{"type":"void","named":false},{"type":"while","named":false},{"type":"with","named":false},{"type":"yield","named":false},{"type":"{","named":false},{"type":"|","named":false},{"type":"|=","named":false},{"type":"||","named":false},{"type":"||=","named":false},{"type":"}","named":false},{"type":"~","named":false}]');
+
+/***/ }),
+/* 26 */
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.AIInlineCompletionProvider = void 0;
+const vscode = __importStar(__webpack_require__(1));
+class AIInlineCompletionProvider {
+    constructor(modelClient, indexer) {
+        this.enabled = true;
+        this.modelClient = modelClient;
+        this.indexer = indexer;
+    }
+    setEnabled(enabled) {
+        this.enabled = enabled;
+    }
+    async provideInlineCompletionItems(document, position, context, token) {
+        if (!this.enabled) {
+            return undefined;
+        }
+        // Debounce
+        if (this.debounceTimer) {
+            clearTimeout(this.debounceTimer);
+        }
+        return new Promise((resolve) => {
+            this.debounceTimer = setTimeout(async () => {
+                try {
+                    const completion = await this.generateCompletion(document, position, token);
+                    if (completion && completion.trim().length > 0 && !token.isCancellationRequested) {
+                        resolve([
+                            new vscode.InlineCompletionItem(completion, new vscode.Range(position, position))
+                        ]);
+                    }
+                    else {
+                        resolve(undefined);
+                    }
+                }
+                catch (error) {
+                    console.error('Autocomplete error:', error);
+                    resolve(undefined);
+                }
+            }, 300); // 300ms debounce
+        });
+    }
+    async generateCompletion(document, position, token) {
+        // Get code before cursor
+        const codeBefore = document.getText(new vscode.Range(new vscode.Position(Math.max(0, position.line - 20), 0), position));
+        // Get code after cursor (for context)
+        const codeAfter = document.getText(new vscode.Range(position, new vscode.Position(Math.min(document.lineCount, position.line + 5), 0)));
+        // Search codebase for relevant code
+        const query = codeBefore.slice(-100); // Last 100 chars
+        const relevantCode = this.indexer.search(query, 3);
+        // Build context from relevant code
+        const context = relevantCode
+            .map(chunk => `// From ${chunk.filePath}\n${chunk.content}`)
+            .join('\n\n');
+        // Build prompt
+        const prompt = `You are an expert code completion AI. Complete the code naturally and concisely.
+
+File: ${document.fileName}
+Language: ${document.languageId}
+
+${context ? `Relevant code from project:\n${context}\n\n` : ''}Code before cursor:
+${codeBefore}
+
+Code after cursor:
+${codeAfter}
+
+Complete the code at the cursor position. Output ONLY the completion text, no explanations or markdown.
+Rules:
+- Match the existing code style
+- Keep it concise (1-3 lines max)
+- Don't repeat code that's already there
+- Ensure proper indentation
+
+Completion:`;
+        if (token.isCancellationRequested) {
+            return undefined;
+        }
+        // Use fast model (Groq Llama 3.3 70B)
+        try {
+            const response = await this.modelClient.sendMessage({ provider: 'groq', modelId: 'llama-3.3-70b-versatile' }, [{ role: 'user', content: prompt }]);
+            // Extract completion
+            let completion = response.content.trim();
+            // Remove markdown code blocks if present
+            completion = completion.replace(/```[\w]*\n?/g, '').trim();
+            // Remove any leading/trailing quotes
+            completion = completion.replace(/^["']|["']$/g, '');
+            return completion;
+        }
+        catch (error) {
+            console.error('AI completion error:', error);
+            // If Groq fails, try Cerebras as fallback
+            try {
+                const response = await this.modelClient.sendMessage({ provider: 'cerebras', modelId: 'llama3.1-8b' }, [{ role: 'user', content: prompt }]);
+                return response.content.trim().replace(/```[\w]*\n?/g, '').trim();
+            }
+            catch (fallbackError) {
+                console.error('Fallback completion error:', fallbackError);
+                return undefined;
+            }
+        }
+    }
+}
+exports.AIInlineCompletionProvider = AIInlineCompletionProvider;
+
+
+/***/ }),
+/* 27 */
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ChatEnhancer = void 0;
+const vscode = __importStar(__webpack_require__(1));
+class ChatEnhancer {
+    constructor(modelClient) {
+        this.modelClient = modelClient;
+    }
+    /**
+     * Parse @-mentions from message
+     * Example: "Explain @src/App.tsx" -> ["src/App.tsx"]
+     */
+    parseMentions(text) {
+        const regex = /@([\w\/\.\-]+)/g;
+        const mentions = [];
+        let match;
+        while ((match = regex.exec(text)) !== null) {
+            mentions.push(match[1]);
+        }
+        return mentions;
+    }
+    /**
+     * Fetch content of mentioned files
+     */
+    async fetchMentionedFiles(mentions) {
+        let context = '';
+        for (const mention of mentions) {
+            try {
+                // Try to find the file in workspace
+                const workspaceFolders = vscode.workspace.workspaceFolders;
+                if (!workspaceFolders)
+                    continue;
+                const rootPath = workspaceFolders[0].uri.fsPath;
+                const filePath = mention.startsWith('/') ? mention : `${rootPath}/${mention}`;
+                const uri = vscode.Uri.file(filePath);
+                const content = await vscode.workspace.fs.readFile(uri);
+                const text = Buffer.from(content).toString('utf8');
+                context += `\n\n// File: ${mention}\n${text}`;
+            }
+            catch (error) {
+                console.error(`Failed to read ${mention}:`, error);
+                context += `\n\n// File: ${mention} (not found)`;
+            }
+        }
+        return context;
+    }
+    /**
+     * Check if message starts with a slash command
+     */
+    parseSlashCommand(text) {
+        const match = text.match(/^\/(fix|explain|test|refactor|docs|optimize)(\s+(.*))?$/);
+        if (match) {
+            return {
+                command: match[1],
+                args: match[3] || ''
+            };
+        }
+        return null;
+    }
+    /**
+     * Handle slash commands
+     */
+    async handleSlashCommand(command, code, provider, modelId) {
+        const prompts = {
+            fix: `You are an expert debugger. Fix any errors in this code and explain what was wrong:
+
+\`\`\`
+${code}
+\`\`\`
+
+Provide the fixed code and explanation.`,
+            explain: `You are an expert code explainer. Explain what this code does in clear, simple terms:
+
+\`\`\`
+${code}
+\`\`\`
+
+Provide a detailed explanation.`,
+            test: `You are an expert test writer. Generate comprehensive unit tests for this code:
+
+\`\`\`
+${code}
+\`\`\`
+
+Use the appropriate testing framework (Jest, Mocha, etc.) based on the code.`,
+            refactor: `You are an expert code reviewer. Refactor this code to improve:
+- Readability
+- Performance
+- Maintainability
+- Best practices
+
+Original code:
+\`\`\`
+${code}
+\`\`\`
+
+Provide the refactored code with explanations of changes.`,
+            docs: `You are an expert technical writer. Add comprehensive JSDoc/documentation comments to this code:
+
+\`\`\`
+${code}
+\`\`\`
+
+Include parameter descriptions, return types, and examples where appropriate.`,
+            optimize: `You are an expert performance engineer. Optimize this code for better performance:
+
+\`\`\`
+${code}
+\`\`\`
+
+Provide the optimized code and explain the performance improvements.`
+        };
+        const prompt = prompts[command];
+        if (!prompt) {
+            throw new Error(`Unknown command: /${command}`);
+        }
+        try {
+            const response = await this.modelClient.sendMessage({ provider, modelId }, [{ role: 'user', content: prompt }]);
+            return response.content;
+        }
+        catch (error) {
+            throw new Error(`Failed to execute /${command}: ${error.message}`);
+        }
+    }
+    /**
+     * Get selected code from active editor
+     */
+    getSelectedCode() {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+            return null;
+        }
+        const selection = editor.selection;
+        if (selection.isEmpty) {
+            // If no selection, get current line
+            const line = editor.document.lineAt(selection.active.line);
+            return line.text;
+        }
+        return editor.document.getText(selection);
+    }
+    /**
+     * Enhance message with mentions and handle slash commands
+     */
+    async enhanceMessage(message, provider, modelId) {
+        // Check for slash command
+        const slashCommand = this.parseSlashCommand(message);
+        if (slashCommand) {
+            const selectedCode = this.getSelectedCode();
+            if (!selectedCode) {
+                throw new Error('Please select code to use slash commands');
+            }
+            const response = await this.handleSlashCommand(slashCommand.command, selectedCode, provider, modelId);
+            return {
+                enhancedMessage: response,
+                isSlashCommand: true
+            };
+        }
+        // Parse mentions
+        const mentions = this.parseMentions(message);
+        if (mentions.length === 0) {
+            return {
+                enhancedMessage: message,
+                isSlashCommand: false
+            };
+        }
+        // Fetch mentioned files
+        const context = await this.fetchMentionedFiles(mentions);
+        // Enhance message with context
+        const enhancedMessage = `${context}\n\n${message}`;
+        return {
+            enhancedMessage,
+            isSlashCommand: false
+        };
+    }
+}
+exports.ChatEnhancer = ChatEnhancer;
+
+
+/***/ }),
+/* 28 */
 /***/ ((__unused_webpack_module, exports) => {
 
+"use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.CodeAnalyzer = void 0;
